@@ -350,18 +350,45 @@
             </div>
           </div>
 
-          <!-- Goal Tracker -->
+          <!-- Goals & Big Purchases -->
           <div class="section">
-            <div class="section-header"><h2>Next Goal</h2></div>
-            <div id="goalTracker" class="goal-tracker">
-              <div class="goal-title" id="goalTitle">Save $5,000 for personal account</div>
-              <div class="gauge-bar" style="height:10px; margin: 10px 0;">
-                <div class="gauge-fill" id="goalFill" style="width:0%; background: var(--gold)"></div>
+            <div class="section-header">
+              <h2>Goals & Purchases</h2>
+              <button class="btn btn-sm" onclick="App.addGoal()">+ Add Goal</button>
+            </div>
+            <div id="goalList" class="goal-list">
+              <div class="empty-state">No goals yet — add your first target</div>
+            </div>
+          </div>
+
+          <!-- Billing & Expenses -->
+          <div class="section">
+            <div class="section-header">
+              <h2>Bills & Expenses</h2>
+              <button class="btn btn-sm" onclick="App.addExpense()">+ Add Expense</button>
+            </div>
+            <div class="billing-summary" id="billingSummary">
+              <div class="billing-header">
+                <div class="billing-stat">
+                  <span class="billing-stat-label">Monthly Bills</span>
+                  <span class="billing-stat-value" id="billingTotal">$0</span>
+                </div>
+                <div class="billing-stat">
+                  <span class="billing-stat-label">Paid</span>
+                  <span class="billing-stat-value positive" id="billingPaid">$0</span>
+                </div>
+                <div class="billing-stat">
+                  <span class="billing-stat-label">Pending</span>
+                  <span class="billing-stat-value" id="billingPending">$0</span>
+                </div>
+                <div class="billing-stat">
+                  <span class="billing-stat-label">Trading Coverage</span>
+                  <span class="billing-stat-value" id="billingCoverage">0%</span>
+                </div>
               </div>
-              <div style="display:flex; justify-content:space-between; font-family:var(--font-mono); font-size:12px; color:var(--text-2)">
-                <span id="goalCurrent">$0</span>
-                <span id="goalTarget">$5,000</span>
-              </div>
+            </div>
+            <div id="expenseList" class="expense-list">
+              <div class="empty-state">No expenses tracked yet</div>
             </div>
           </div>
         </div>

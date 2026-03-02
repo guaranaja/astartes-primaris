@@ -17,6 +17,10 @@ const App = {
     allocations: [],
     withdrawalAdvice: [],
     metrics: null,
+    // Goals & Billing
+    goals: [],
+    expenses: [],
+    billing: null,
   },
 
   // ─── Init ──────────────────────────────────────────────
@@ -540,7 +544,7 @@ const App = {
 
   async loadCouncil() {
     try {
-      const [roadmap, accounts, payouts, budget, allocations, advice, metrics] = await Promise.all([
+      const [roadmap, accounts, payouts, budget, allocations, advice, metrics, goals, expenses, billing] = await Promise.all([
         this.api('/council/roadmap'),
         this.api('/council/accounts'),
         this.api('/council/payouts'),
@@ -548,6 +552,9 @@ const App = {
         this.api('/council/allocations'),
         this.api('/council/withdrawal-advice'),
         this.api('/council/metrics'),
+        this.api('/council/goals'),
+        this.api('/council/expenses'),
+        this.api('/council/billing'),
       ]);
       this.state.roadmap = roadmap;
       this.state.accounts = accounts || [];
@@ -556,6 +563,9 @@ const App = {
       this.state.allocations = allocations || [];
       this.state.withdrawalAdvice = advice || [];
       this.state.metrics = metrics;
+      this.state.goals = goals || [];
+      this.state.expenses = expenses || [];
+      this.state.billing = billing;
       this.renderCouncil();
     } catch (e) {
       // Primarch might not be running
@@ -569,7 +579,8 @@ const App = {
     this.renderPayouts();
     this.renderBusinessMetrics();
     this.renderAllocations();
-    this.renderGoalTracker();
+    this.renderGoals();
+    this.renderBilling();
   },
 
   renderPhaseTracker() {
@@ -692,14 +703,330 @@ const App = {
     `).join('');
   },
 
-  renderGoalTracker() {
-    const m = this.state.metrics;
-    if (!m) return;
-    const pct = Math.min(m.goal_progress * 100, 100);
-    setText('goalTitle', `Grow personal account to $${fmt(m.personal_account_goal)}`);
-    setText('goalCurrent', '$' + fmt(m.personal_account_value));
-    setText('goalTarget', '$' + fmt(m.personal_account_goal));
-    document.getElementById('goalFill').style.width = pct + '%';
+  renderGoals() {
+    const el = document.getElementById('goalList');
+    if (!this.state.goals.length) {
+      el.innerHTML = '<div class="empty-state">No goals yet — add your first target</div>';
+      return;
+    }
+    // Sort by priority (1 = highest), then by completion status
+    const sorted = [...this.state.goals].sort((a, b) => {
+      if (a.status === 'completed' && b.status !== 'completed') return 1;
+      if (b.status === 'completed' && a.status !== 'completed') return -1;
+      return (a.priority || 3) - (b.priority || 3);
+    });
+    const categoryIcons = {
+      home_improvement: '🏠', vehicle: '🚗', savings: '💰',
+      trading: '📈', debt: '💳', lifestyle: '🎯', business: '🏢',
+    };
+    el.innerHTML = sorted.map(g => {
+      const pct = g.target_amount > 0 ? Math.min((g.current_amount / g.target_amount) * 100, 100) : 0;
+      const icon = g.icon || categoryIcons[g.category] || '🎯';
+      const priorityDots = Array.from({length: 5}, (_, i) =>
+        `<span class="goal-priority-dot ${i < (6 - (g.priority || 3)) ? 'filled' : ''}"></span>`
+      ).join('');
+      return `
+        <div class="goal-card ${g.status}">
+          <div class="goal-header">
+            <span class="goal-name"><span class="goal-icon">${icon}</span> ${esc(g.name)}</span>
+            <span class="goal-category ${g.category}">${(g.category || '').replace('_', ' ')}</span>
+          </div>
+          ${g.description ? `<div style="font-size:11px;color:var(--text-2);margin-bottom:6px">${esc(g.description)}</div>` : ''}
+          <div class="goal-progress">
+            <div class="goal-progress-bar">
+              <div class="goal-progress-fill" style="width:${pct}%"></div>
+            </div>
+          </div>
+          <div class="goal-amounts">
+            <span class="current">$${fmt(g.current_amount)}</span>
+            <span>$${fmt(g.target_amount)}</span>
+          </div>
+          <div class="goal-footer">
+            <div class="goal-priority" title="Priority">${priorityDots}</div>
+            ${g.payouts_needed > 0 ? `<span class="goal-payouts-needed">${g.payouts_needed} payouts away</span>` : ''}
+            ${g.status === 'completed' ? '<span style="color:var(--green)">COMPLETED</span>' : ''}
+            <div class="goal-actions">
+              ${g.status === 'active' ? `<button class="btn btn-sm" onclick="event.stopPropagation(); App.contributeGoal('${g.id}', '${esc(g.name)}')">+ Fund</button>` : ''}
+            </div>
+          </div>
+        </div>`;
+    }).join('');
+  },
+
+  renderBilling() {
+    const b = this.state.billing;
+    if (b) {
+      setText('billingTotal', '$' + fmt(b.total_expenses));
+      setText('billingPaid', '$' + fmt(b.total_paid));
+      setText('billingPending', '$' + fmt(b.total_pending));
+      setText('billingCoverage', Math.round((b.trading_coverage || 0) * 100) + '%');
+    }
+
+    const el = document.getElementById('expenseList');
+    if (!this.state.expenses.length) {
+      el.innerHTML = '<div class="empty-state">No expenses tracked — add your bills</div>';
+      return;
+    }
+    el.innerHTML = this.state.expenses.map(e => `
+      <div class="expense-item">
+        <span class="expense-name">${esc(e.name)}</span>
+        <span class="expense-category">${esc(e.category)}</span>
+        <span class="expense-amount">$${fmt(e.amount)}</span>
+        <span class="expense-freq">${e.frequency}</span>
+        ${e.auto_pay ? '<span class="expense-autopay">AUTO</span>' : ''}
+        <div class="expense-actions">
+          <button class="btn btn-sm" onclick="event.stopPropagation(); App.payExpense('${e.id}', '${esc(e.name)}', ${e.amount})" title="Record payment">Pay</button>
+        </div>
+      </div>
+    `).join('');
+  },
+
+  addGoal() {
+    this.openModal(`
+      <h3 style="margin-bottom: 16px">Add Goal</h3>
+      <form onsubmit="App.submitGoal(event)" style="display:flex;flex-direction:column;gap:12px">
+        <div class="form-row">
+          <label>Name</label>
+          <input type="text" id="newGoalName" class="input" placeholder="Corvette, Garage, Porch..." required>
+        </div>
+        <div class="form-row">
+          <label>Description (optional)</label>
+          <input type="text" id="newGoalDesc" class="input" placeholder="Details about this goal">
+        </div>
+        <div class="form-row two-col">
+          <div>
+            <label>Category</label>
+            <select id="newGoalCat" class="input">
+              <option value="home_improvement">Home Improvement</option>
+              <option value="vehicle">Vehicle</option>
+              <option value="savings">Savings</option>
+              <option value="trading">Trading</option>
+              <option value="debt">Debt Payoff</option>
+              <option value="lifestyle">Lifestyle</option>
+              <option value="business">Business</option>
+            </select>
+          </div>
+          <div>
+            <label>Priority (1=highest)</label>
+            <select id="newGoalPriority" class="input">
+              <option value="1">1 — Critical</option>
+              <option value="2">2 — High</option>
+              <option value="3" selected>3 — Medium</option>
+              <option value="4">4 — Low</option>
+              <option value="5">5 — Someday</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-row two-col">
+          <div>
+            <label>Target Amount ($)</label>
+            <input type="number" id="newGoalTarget" class="input" placeholder="15000" required>
+          </div>
+          <div>
+            <label>Already Saved ($)</label>
+            <input type="number" id="newGoalCurrent" class="input" value="0">
+          </div>
+        </div>
+        <div class="form-row">
+          <label>Target Date (optional)</label>
+          <input type="date" id="newGoalDate" class="input">
+        </div>
+        <button type="submit" class="btn btn-primary btn-lg">Add Goal</button>
+      </form>
+    `);
+  },
+
+  async submitGoal(e) {
+    e.preventDefault();
+    const dateVal = document.getElementById('newGoalDate').value;
+    try {
+      await this.api('/council/goals', {
+        method: 'POST',
+        body: {
+          id: 'goal-' + Date.now(),
+          name: document.getElementById('newGoalName').value,
+          description: document.getElementById('newGoalDesc').value,
+          category: document.getElementById('newGoalCat').value,
+          priority: parseInt(document.getElementById('newGoalPriority').value),
+          target_amount: parseFloat(document.getElementById('newGoalTarget').value),
+          current_amount: parseFloat(document.getElementById('newGoalCurrent').value) || 0,
+          target_date: dateVal ? new Date(dateVal).toISOString() : undefined,
+        },
+      });
+      this.closeModal();
+      this.loadCouncil();
+      this.flash('Goal added', 'info');
+    } catch (err) {
+      this.flash(err.message, 'error');
+    }
+  },
+
+  contributeGoal(goalId, goalName) {
+    this.openModal(`
+      <h3 style="margin-bottom: 16px">Fund: ${goalName}</h3>
+      <form onsubmit="App.submitContribution(event, '${goalId}')" style="display:flex;flex-direction:column;gap:12px">
+        <div class="form-row">
+          <label>Amount ($)</label>
+          <input type="number" id="contribAmount" class="input" placeholder="500" required>
+        </div>
+        <div class="form-row">
+          <label>Source</label>
+          <select id="contribSource" class="input">
+            <option value="payout">Trading Payout</option>
+            <option value="manual">Manual / Other Income</option>
+            <option value="allocation">Budget Allocation</option>
+          </select>
+        </div>
+        <div class="form-row">
+          <label>Note (optional)</label>
+          <input type="text" id="contribNote" class="input" placeholder="From March payout">
+        </div>
+        <button type="submit" class="btn btn-primary btn-lg">Add Funds</button>
+      </form>
+    `);
+  },
+
+  async submitContribution(e, goalId) {
+    e.preventDefault();
+    try {
+      await this.api(`/council/goals/${goalId}/contribute`, {
+        method: 'POST',
+        body: {
+          id: 'contrib-' + Date.now(),
+          amount: parseFloat(document.getElementById('contribAmount').value),
+          source: document.getElementById('contribSource').value,
+          note: document.getElementById('contribNote').value,
+        },
+      });
+      this.closeModal();
+      this.loadCouncil();
+      this.flash('Contribution recorded', 'info');
+    } catch (err) {
+      this.flash(err.message, 'error');
+    }
+  },
+
+  addExpense() {
+    this.openModal(`
+      <h3 style="margin-bottom: 16px">Add Expense / Bill</h3>
+      <form onsubmit="App.submitExpense(event)" style="display:flex;flex-direction:column;gap:12px">
+        <div class="form-row">
+          <label>Name</label>
+          <input type="text" id="newExpName" class="input" placeholder="Rent, Electric, Data Feed..." required>
+        </div>
+        <div class="form-row two-col">
+          <div>
+            <label>Category</label>
+            <select id="newExpCat" class="input">
+              <option value="rent">Rent/Mortgage</option>
+              <option value="utilities">Utilities</option>
+              <option value="subscriptions">Subscriptions</option>
+              <option value="insurance">Insurance</option>
+              <option value="trading_fees">Trading Fees</option>
+              <option value="data_feeds">Data Feeds</option>
+              <option value="software">Software</option>
+              <option value="food">Food</option>
+              <option value="transport">Transport</option>
+              <option value="other">Other</option>
+            </select>
+          </div>
+          <div>
+            <label>Frequency</label>
+            <select id="newExpFreq" class="input">
+              <option value="monthly">Monthly</option>
+              <option value="weekly">Weekly</option>
+              <option value="biweekly">Biweekly</option>
+              <option value="annual">Annual</option>
+              <option value="one_time">One Time</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-row two-col">
+          <div>
+            <label>Amount ($)</label>
+            <input type="number" id="newExpAmount" class="input" placeholder="1200" required>
+          </div>
+          <div>
+            <label>Due Day (1-31)</label>
+            <input type="number" id="newExpDue" class="input" value="1" min="1" max="31">
+          </div>
+        </div>
+        <div class="form-row">
+          <label style="display:flex;align-items:center;gap:8px">
+            <input type="checkbox" id="newExpAuto"> Auto-Pay
+          </label>
+        </div>
+        <button type="submit" class="btn btn-primary btn-lg">Add Expense</button>
+      </form>
+    `);
+  },
+
+  async submitExpense(e) {
+    e.preventDefault();
+    try {
+      await this.api('/council/expenses', {
+        method: 'POST',
+        body: {
+          id: 'exp-' + Date.now(),
+          name: document.getElementById('newExpName').value,
+          category: document.getElementById('newExpCat').value,
+          frequency: document.getElementById('newExpFreq').value,
+          amount: parseFloat(document.getElementById('newExpAmount').value),
+          due_day: parseInt(document.getElementById('newExpDue').value) || 1,
+          auto_pay: document.getElementById('newExpAuto').checked,
+        },
+      });
+      this.closeModal();
+      this.loadCouncil();
+      this.flash('Expense added', 'info');
+    } catch (err) {
+      this.flash(err.message, 'error');
+    }
+  },
+
+  payExpense(expenseId, expenseName, amount) {
+    this.openModal(`
+      <h3 style="margin-bottom: 16px">Pay: ${expenseName}</h3>
+      <form onsubmit="App.submitPayment(event, '${expenseId}')" style="display:flex;flex-direction:column;gap:12px">
+        <div class="form-row">
+          <label>Amount ($)</label>
+          <input type="number" id="paymentAmount" class="input" value="${amount}" required>
+        </div>
+        <div class="form-row">
+          <label>Method</label>
+          <select id="paymentMethod" class="input">
+            <option value="trading_income">Trading Income</option>
+            <option value="bank">Bank Account</option>
+            <option value="manual">Manual / Cash</option>
+          </select>
+        </div>
+        <div class="form-row">
+          <label>Note (optional)</label>
+          <input type="text" id="paymentNote" class="input" placeholder="March payment">
+        </div>
+        <button type="submit" class="btn btn-primary btn-lg">Record Payment</button>
+      </form>
+    `);
+  },
+
+  async submitPayment(e, expenseId) {
+    e.preventDefault();
+    try {
+      await this.api(`/council/expenses/${expenseId}/pay`, {
+        method: 'POST',
+        body: {
+          id: 'pay-' + Date.now(),
+          amount: parseFloat(document.getElementById('paymentAmount').value),
+          method: document.getElementById('paymentMethod').value,
+          note: document.getElementById('paymentNote').value,
+        },
+      });
+      this.closeModal();
+      this.loadCouncil();
+      this.flash('Payment recorded', 'info');
+    } catch (err) {
+      this.flash(err.message, 'error');
+    }
   },
 
   addAccount() {

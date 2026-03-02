@@ -37,6 +37,22 @@ func (s *Server) registerCouncilRoutes() {
 
 	// Business metrics
 	s.mux.HandleFunc("GET /api/v1/council/metrics", s.handleBusinessMetrics)
+
+	// Goals
+	s.mux.HandleFunc("GET /api/v1/council/goals", s.handleListGoals)
+	s.mux.HandleFunc("POST /api/v1/council/goals", s.handleCreateGoal)
+	s.mux.HandleFunc("GET /api/v1/council/goals/{id}", s.handleGetGoal)
+	s.mux.HandleFunc("PUT /api/v1/council/goals/{id}", s.handleUpdateGoal)
+	s.mux.HandleFunc("DELETE /api/v1/council/goals/{id}", s.handleDeleteGoal)
+	s.mux.HandleFunc("POST /api/v1/council/goals/{id}/contribute", s.handleContributeGoal)
+
+	// Billing & Expenses
+	s.mux.HandleFunc("GET /api/v1/council/expenses", s.handleListExpenses)
+	s.mux.HandleFunc("POST /api/v1/council/expenses", s.handleCreateExpense)
+	s.mux.HandleFunc("PUT /api/v1/council/expenses/{id}", s.handleUpdateExpense)
+	s.mux.HandleFunc("DELETE /api/v1/council/expenses/{id}", s.handleDeleteExpense)
+	s.mux.HandleFunc("POST /api/v1/council/expenses/{id}/pay", s.handlePayExpense)
+	s.mux.HandleFunc("GET /api/v1/council/billing", s.handleBillingSummary)
 }
 
 // ─── Roadmap ────────────────────────────────────────────────
@@ -216,4 +232,154 @@ func (s *Server) handleWithdrawalAdvice(w http.ResponseWriter, r *http.Request) 
 
 func (s *Server) handleBusinessMetrics(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, s.store.GetBusinessMetrics())
+}
+
+// ─── Goals ──────────────────────────────────────────────────
+
+func (s *Server) handleListGoals(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, s.store.ListGoals())
+}
+
+func (s *Server) handleGetGoal(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	g, err := s.store.GetGoal(id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, g)
+}
+
+func (s *Server) handleCreateGoal(w http.ResponseWriter, r *http.Request) {
+	var g domain.Goal
+	if err := json.NewDecoder(r.Body).Decode(&g); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid json: "+err.Error())
+		return
+	}
+	if g.ID == "" || g.Name == "" || g.TargetAmount <= 0 {
+		writeError(w, http.StatusBadRequest, "id, name, and target_amount > 0 required")
+		return
+	}
+	if err := s.store.CreateGoal(&g); err != nil {
+		writeError(w, http.StatusConflict, err.Error())
+		return
+	}
+	s.logger.Info("goal created", "id", g.ID, "name", g.Name, "target", g.TargetAmount)
+	writeJSON(w, http.StatusCreated, g)
+}
+
+func (s *Server) handleUpdateGoal(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	var g domain.Goal
+	if err := json.NewDecoder(r.Body).Decode(&g); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid json: "+err.Error())
+		return
+	}
+	g.ID = id
+	if err := s.store.UpdateGoal(&g); err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, g)
+}
+
+func (s *Server) handleDeleteGoal(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if err := s.store.DeleteGoal(id); err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"deleted": id})
+}
+
+func (s *Server) handleContributeGoal(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	var c domain.GoalContribution
+	if err := json.NewDecoder(r.Body).Decode(&c); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid json: "+err.Error())
+		return
+	}
+	if c.ID == "" || c.Amount <= 0 {
+		writeError(w, http.StatusBadRequest, "id and amount > 0 required")
+		return
+	}
+	c.GoalID = id
+	if err := s.store.ContributeToGoal(c); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	s.logger.Info("goal contribution", "goal", id, "amount", c.Amount, "source", c.Source)
+	writeJSON(w, http.StatusCreated, c)
+}
+
+// ─── Billing & Expenses ─────────────────────────────────────
+
+func (s *Server) handleListExpenses(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, s.store.ListExpenses())
+}
+
+func (s *Server) handleCreateExpense(w http.ResponseWriter, r *http.Request) {
+	var e domain.Expense
+	if err := json.NewDecoder(r.Body).Decode(&e); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid json: "+err.Error())
+		return
+	}
+	if e.ID == "" || e.Name == "" || e.Amount <= 0 {
+		writeError(w, http.StatusBadRequest, "id, name, and amount > 0 required")
+		return
+	}
+	if err := s.store.CreateExpense(&e); err != nil {
+		writeError(w, http.StatusConflict, err.Error())
+		return
+	}
+	s.logger.Info("expense created", "id", e.ID, "name", e.Name, "amount", e.Amount)
+	writeJSON(w, http.StatusCreated, e)
+}
+
+func (s *Server) handleUpdateExpense(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	var e domain.Expense
+	if err := json.NewDecoder(r.Body).Decode(&e); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid json: "+err.Error())
+		return
+	}
+	e.ID = id
+	if err := s.store.UpdateExpense(&e); err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, e)
+}
+
+func (s *Server) handleDeleteExpense(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if err := s.store.DeleteExpense(id); err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"deleted": id})
+}
+
+func (s *Server) handlePayExpense(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	var p domain.Payment
+	if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid json: "+err.Error())
+		return
+	}
+	if p.ID == "" || p.Amount <= 0 {
+		writeError(w, http.StatusBadRequest, "id and amount > 0 required")
+		return
+	}
+	p.ExpenseID = id
+	if err := s.store.RecordPayment(p); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	s.logger.Info("payment recorded", "expense", id, "amount", p.Amount)
+	writeJSON(w, http.StatusCreated, p)
+}
+
+func (s *Server) handleBillingSummary(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, s.store.GetBillingSummary())
 }

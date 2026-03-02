@@ -340,6 +340,109 @@ type WithdrawalAdvice struct {
 	NextReviewAt    time.Time    `json:"next_review_at"`
 }
 
+// ─── Goals & Big Purchases ──────────────────────────────────
+
+// GoalCategory categorizes personal financial goals.
+type GoalCategory string
+
+const (
+	GoalHomeImprovement GoalCategory = "home_improvement" // Garage, shed, porch
+	GoalVehicle         GoalCategory = "vehicle"          // Corvette, truck, etc.
+	GoalSavings         GoalCategory = "savings"          // Emergency fund, etc.
+	GoalTrading         GoalCategory = "trading"          // Account funding
+	GoalDebt            GoalCategory = "debt"             // Paying off debt
+	GoalLifestyle       GoalCategory = "lifestyle"        // Vacation, gear, etc.
+	GoalBusiness        GoalCategory = "business"         // LLC fees, equipment
+)
+
+// GoalStatus tracks the lifecycle of a goal.
+type GoalStatus string
+
+const (
+	GoalActive    GoalStatus = "active"
+	GoalCompleted GoalStatus = "completed"
+	GoalPaused    GoalStatus = "paused"
+)
+
+// Goal represents a personal financial goal funded by trading income.
+type Goal struct {
+	ID            string       `json:"id"`
+	Name          string       `json:"name"`
+	Description   string       `json:"description,omitempty"`
+	Category      GoalCategory `json:"category"`
+	TargetAmount  float64      `json:"target_amount"`
+	CurrentAmount float64      `json:"current_amount"`
+	Priority      int          `json:"priority"` // 1 = highest, 5 = lowest
+	TargetDate    *time.Time   `json:"target_date,omitempty"`
+	Status        GoalStatus   `json:"status"`
+	Icon          string       `json:"icon,omitempty"` // Emoji or symbol
+	PayoutsNeeded int          `json:"payouts_needed"` // Calculated: how many avg payouts to reach goal
+	CreatedAt     time.Time    `json:"created_at"`
+	UpdatedAt     time.Time    `json:"updated_at"`
+	CompletedAt   *time.Time   `json:"completed_at,omitempty"`
+}
+
+// GoalContribution records money allocated toward a goal.
+type GoalContribution struct {
+	ID        string    `json:"id"`
+	GoalID    string    `json:"goal_id"`
+	Amount    float64   `json:"amount"`
+	Source    string    `json:"source"` // "payout", "manual", "allocation"
+	PayoutID  string    `json:"payout_id,omitempty"`
+	Note      string    `json:"note,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// ─── Billing & Expenses ─────────────────────────────────────
+
+// ExpenseFrequency defines how often an expense recurs.
+type ExpenseFrequency string
+
+const (
+	FreqMonthly  ExpenseFrequency = "monthly"
+	FreqWeekly   ExpenseFrequency = "weekly"
+	FreqBiweekly ExpenseFrequency = "biweekly"
+	FreqAnnual   ExpenseFrequency = "annual"
+	FreqOneTime  ExpenseFrequency = "one_time"
+)
+
+// Expense represents a recurring or one-time bill/expense.
+type Expense struct {
+	ID         string           `json:"id"`
+	Name       string           `json:"name"`
+	Category   string           `json:"category"` // "rent", "utilities", "subscriptions", "insurance", "trading_fees", "data_feeds"
+	Amount     float64          `json:"amount"`
+	Frequency  ExpenseFrequency `json:"frequency"`
+	DueDay     int              `json:"due_day,omitempty"` // Day of month (1-31)
+	AutoPay    bool             `json:"auto_pay"`
+	Status     string           `json:"status"` // "active", "paused", "cancelled"
+	NextDue    *time.Time       `json:"next_due,omitempty"`
+	CreatedAt  time.Time        `json:"created_at"`
+	UpdatedAt  time.Time        `json:"updated_at"`
+}
+
+// Payment records a payment made for an expense.
+type Payment struct {
+	ID        string    `json:"id"`
+	ExpenseID string    `json:"expense_id"`
+	Amount    float64   `json:"amount"`
+	PaidAt    time.Time `json:"paid_at"`
+	Method    string    `json:"method"` // "bank", "trading_income", "manual"
+	Note      string    `json:"note,omitempty"`
+}
+
+// BillingSummary aggregates expense and payment data for a period.
+type BillingSummary struct {
+	Month           string    `json:"month"` // "2026-03"
+	TotalExpenses   float64   `json:"total_expenses"`
+	TotalPaid       float64   `json:"total_paid"`
+	TotalPending    float64   `json:"total_pending"`
+	TotalOverdue    float64   `json:"total_overdue"`
+	TradingCoverage float64   `json:"trading_coverage"` // % of expenses covered by trading income
+	Expenses        []Expense `json:"expenses"`
+	Payments        []Payment `json:"recent_payments"`
+}
+
 // ─── Business Metrics ───────────────────────────────────────
 
 // BusinessMetrics tracks overall business health.

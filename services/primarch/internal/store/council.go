@@ -194,9 +194,34 @@ func (s *Store) GetWithdrawalAdvice() []domain.WithdrawalAdvice {
 			wa.Allocations = s.distributeWithdrawal(wa.RecommendedAmt)
 		}
 
+		// Add goal context to reason
+		if topGoal := s.topActiveGoal(); topGoal != nil {
+			remaining := topGoal.TargetAmount - topGoal.CurrentAmount
+			if remaining > 0 {
+				needed := s.calcPayoutsNeeded(remaining)
+				if needed > 0 {
+					wa.Reason += fmt.Sprintf(" (%d payouts to %s)", needed, topGoal.Name)
+				}
+			}
+		}
+
 		advice = append(advice, wa)
 	}
 	return advice
+}
+
+// topActiveGoal returns the highest-priority active goal. Must hold read lock.
+func (s *Store) topActiveGoal() *domain.Goal {
+	var top *domain.Goal
+	for _, g := range s.goals {
+		if g.Status != domain.GoalActive {
+			continue
+		}
+		if top == nil || g.Priority < top.Priority {
+			top = g
+		}
+	}
+	return top
 }
 
 func (s *Store) distributeWithdrawal(amount float64) []domain.Allocation {
@@ -404,6 +429,270 @@ func DefaultRoadmap() *domain.Roadmap {
 			},
 		},
 	}
+}
+
+// ─── Goals ──────────────────────────────────────────────────
+
+func (s *Store) ListGoals() []domain.Goal {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]domain.Goal, 0, len(s.goals))
+	for _, g := range s.goals {
+		gc := *g
+		gc.PayoutsNeeded = s.calcPayoutsNeeded(gc.TargetAmount - gc.CurrentAmount)
+		out = append(out, gc)
+	}
+	return out
+}
+
+func (s *Store) GetGoal(id string) (*domain.Goal, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	g, ok := s.goals[id]
+	if !ok {
+		return nil, fmt.Errorf("goal %q not found", id)
+	}
+	gc := *g
+	gc.PayoutsNeeded = s.calcPayoutsNeeded(gc.TargetAmount - gc.CurrentAmount)
+	return &gc, nil
+}
+
+func (s *Store) CreateGoal(g *domain.Goal) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, exists := s.goals[g.ID]; exists {
+		return fmt.Errorf("goal %q already exists", g.ID)
+	}
+	now := time.Now()
+	g.CreatedAt = now
+	g.UpdatedAt = now
+	if g.Status == "" {
+		g.Status = domain.GoalActive
+	}
+	if g.Priority == 0 {
+		g.Priority = 3
+	}
+	s.goals[g.ID] = g
+	return nil
+}
+
+func (s *Store) UpdateGoal(g *domain.Goal) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, exists := s.goals[g.ID]; !exists {
+		return fmt.Errorf("goal %q not found", g.ID)
+	}
+	g.UpdatedAt = time.Now()
+	if g.CurrentAmount >= g.TargetAmount && g.Status == domain.GoalActive {
+		g.Status = domain.GoalCompleted
+		now := time.Now()
+		g.CompletedAt = &now
+	}
+	s.goals[g.ID] = g
+	return nil
+}
+
+func (s *Store) DeleteGoal(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, exists := s.goals[id]; !exists {
+		return fmt.Errorf("goal %q not found", id)
+	}
+	delete(s.goals, id)
+	return nil
+}
+
+func (s *Store) ContributeToGoal(c domain.GoalContribution) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	g, ok := s.goals[c.GoalID]
+	if !ok {
+		return fmt.Errorf("goal %q not found", c.GoalID)
+	}
+	c.CreatedAt = time.Now()
+	s.contributions = append(s.contributions, c)
+	g.CurrentAmount += c.Amount
+	g.UpdatedAt = time.Now()
+	if g.CurrentAmount >= g.TargetAmount && g.Status == domain.GoalActive {
+		g.Status = domain.GoalCompleted
+		now := time.Now()
+		g.CompletedAt = &now
+	}
+	return nil
+}
+
+func (s *Store) ListContributions(goalID string) []domain.GoalContribution {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var out []domain.GoalContribution
+	for _, c := range s.contributions {
+		if goalID == "" || c.GoalID == goalID {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// calcPayoutsNeeded estimates how many payouts to reach a goal amount.
+// Must hold at least a read lock.
+func (s *Store) calcPayoutsNeeded(remaining float64) int {
+	if remaining <= 0 {
+		return 0
+	}
+	// Calculate average payout from history
+	if len(s.payouts) == 0 {
+		return -1 // Unknown
+	}
+	total := 0.0
+	for _, p := range s.payouts {
+		total += p.NetAmount
+	}
+	avg := total / float64(len(s.payouts))
+	if avg <= 0 {
+		return -1
+	}
+	// Only the personal allocation % goes toward goals
+	personalPct := 0.10 // Default: 10% personal allocation
+	for _, a := range s.allocations {
+		if a.Category == "personal" || a.Category == "savings" {
+			personalPct += a.Percentage / 100
+		}
+	}
+	if personalPct > 0 {
+		perPayout := avg * personalPct
+		if perPayout > 0 {
+			needed := int(remaining/perPayout) + 1
+			return needed
+		}
+	}
+	return -1
+}
+
+// ─── Expenses & Billing ─────────────────────────────────────
+
+func (s *Store) ListExpenses() []domain.Expense {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]domain.Expense, 0, len(s.expenses))
+	for _, e := range s.expenses {
+		out = append(out, *e)
+	}
+	return out
+}
+
+func (s *Store) CreateExpense(e *domain.Expense) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, exists := s.expenses[e.ID]; exists {
+		return fmt.Errorf("expense %q already exists", e.ID)
+	}
+	now := time.Now()
+	e.CreatedAt = now
+	e.UpdatedAt = now
+	if e.Status == "" {
+		e.Status = "active"
+	}
+	s.expenses[e.ID] = e
+	return nil
+}
+
+func (s *Store) UpdateExpense(e *domain.Expense) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, exists := s.expenses[e.ID]; !exists {
+		return fmt.Errorf("expense %q not found", e.ID)
+	}
+	e.UpdatedAt = time.Now()
+	s.expenses[e.ID] = e
+	return nil
+}
+
+func (s *Store) DeleteExpense(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, exists := s.expenses[id]; !exists {
+		return fmt.Errorf("expense %q not found", id)
+	}
+	delete(s.expenses, id)
+	return nil
+}
+
+func (s *Store) RecordPayment(p domain.Payment) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, exists := s.expenses[p.ExpenseID]; !exists {
+		return fmt.Errorf("expense %q not found", p.ExpenseID)
+	}
+	p.PaidAt = time.Now()
+	s.payments = append(s.payments, p)
+	return nil
+}
+
+func (s *Store) ListPayments(expenseID string) []domain.Payment {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var out []domain.Payment
+	for _, p := range s.payments {
+		if expenseID == "" || p.ExpenseID == expenseID {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+func (s *Store) GetBillingSummary() domain.BillingSummary {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	now := time.Now()
+	month := now.Format("2006-01")
+	summary := domain.BillingSummary{Month: month}
+
+	// Calculate monthly expense totals
+	for _, e := range s.expenses {
+		if e.Status != "active" {
+			continue
+		}
+		monthly := e.Amount
+		switch e.Frequency {
+		case domain.FreqWeekly:
+			monthly = e.Amount * 4.33
+		case domain.FreqBiweekly:
+			monthly = e.Amount * 2.17
+		case domain.FreqAnnual:
+			monthly = e.Amount / 12
+		case domain.FreqOneTime:
+			// Only count if due this month
+			if e.NextDue != nil && e.NextDue.Format("2006-01") != month {
+				continue
+			}
+		}
+		summary.TotalExpenses += monthly
+		summary.Expenses = append(summary.Expenses, *e)
+	}
+
+	// Count payments this month
+	for _, p := range s.payments {
+		if p.PaidAt.Format("2006-01") == month {
+			summary.TotalPaid += p.Amount
+			summary.Payments = append(summary.Payments, p)
+		}
+	}
+
+	summary.TotalPending = summary.TotalExpenses - summary.TotalPaid
+	if summary.TotalPending < 0 {
+		summary.TotalPending = 0
+	}
+
+	// Trading coverage: what % of bills can trading income cover
+	if summary.TotalExpenses > 0 && s.budget != nil {
+		summary.TradingCoverage = (s.budget.TradingIncome / summary.TotalExpenses)
+		if summary.TradingCoverage > 1 {
+			summary.TradingCoverage = 1
+		}
+	}
+
+	return summary
 }
 
 // DefaultBudget creates an empty budget for the current month.

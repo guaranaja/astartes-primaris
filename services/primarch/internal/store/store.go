@@ -18,11 +18,16 @@ type Store struct {
 	marines     map[string]*domain.Marine
 	cycles      []domain.MarineCycle
 	// Council
-	accounts    map[string]*domain.TradingAccount
-	payouts     []domain.Payout
-	budget      *domain.BudgetSummary
-	allocations []domain.Allocation
-	roadmap     *domain.Roadmap
+	accounts      map[string]*domain.TradingAccount
+	payouts       []domain.Payout
+	budget        *domain.BudgetSummary
+	allocations   []domain.Allocation
+	roadmap       *domain.Roadmap
+	// Goals & Billing
+	goals         map[string]*domain.Goal
+	contributions []domain.GoalContribution
+	expenses      map[string]*domain.Expense
+	payments      []domain.Payment
 }
 
 // New creates a new empty store.
@@ -35,6 +40,8 @@ func New() *Store {
 		allocations: DefaultAllocations(),
 		budget:      DefaultBudget(),
 		roadmap:     DefaultRoadmap(),
+		goals:       make(map[string]*domain.Goal),
+		expenses:    make(map[string]*domain.Expense),
 	}
 }
 
