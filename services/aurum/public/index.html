@@ -29,6 +29,9 @@
       <button class="nav-btn" data-view="performance" data-key="4">
         <span class="nav-key">4</span> Performance
       </button>
+      <button class="nav-btn" data-view="council" data-key="5">
+        <span class="nav-key">5</span> Council
+      </button>
     </nav>
     <div class="topbar-right">
       <div class="connection-status" id="connStatus">
@@ -244,6 +247,122 @@
                 <tr><td colspan="8" class="empty-state">No trades recorded</td></tr>
               </tbody>
             </table>
+          </div>
+        </div>
+      </div>
+    </div>
+    <!-- ═══ VIEW: Council ════════════════════════════════════ -->
+    <div class="view" id="view-council">
+
+      <!-- Phase Progression -->
+      <div class="section">
+        <div class="section-header">
+          <h2>Career Roadmap</h2>
+          <span class="badge" id="currentPhaseLabel">INITIATE</span>
+        </div>
+        <div id="phaseTracker" class="phase-tracker">
+          <div class="empty-state">Loading roadmap...</div>
+        </div>
+      </div>
+
+      <div class="council-grid">
+        <!-- Left: Accounts + Withdrawals -->
+        <div class="council-left">
+          <!-- Accounts -->
+          <div class="section">
+            <div class="section-header">
+              <h2>Trading Accounts</h2>
+              <button class="btn btn-sm" onclick="App.addAccount()">+ Add Account</button>
+            </div>
+            <div id="accountList" class="account-list">
+              <div class="empty-state">No accounts registered</div>
+            </div>
+          </div>
+
+          <!-- Withdrawal Advisor -->
+          <div class="section">
+            <div class="section-header">
+              <h2>Withdrawal Advisor</h2>
+            </div>
+            <div id="withdrawalAdvice" class="withdrawal-list">
+              <div class="empty-state">Add prop accounts to get withdrawal advice</div>
+            </div>
+          </div>
+
+          <!-- Recent Payouts -->
+          <div class="section">
+            <div class="section-header">
+              <h2>Payouts</h2>
+              <button class="btn btn-sm" onclick="App.recordPayout()">+ Record Payout</button>
+            </div>
+            <div id="payoutList" class="payout-list">
+              <div class="empty-state">No payouts recorded</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Right: Budget + Metrics -->
+        <div class="council-right">
+          <!-- Business Metrics -->
+          <div class="section">
+            <div class="section-header"><h2>Business Metrics</h2></div>
+            <div class="stats-grid">
+              <div class="stat">
+                <span class="stat-label">Lifetime P&L</span>
+                <span class="stat-value" id="bizLifetimePnl">$0</span>
+              </div>
+              <div class="stat">
+                <span class="stat-label">Total Payouts</span>
+                <span class="stat-value" id="bizLifetimePayouts">$0</span>
+              </div>
+              <div class="stat">
+                <span class="stat-label">Monthly Net</span>
+                <span class="stat-value" id="bizMonthlyNet">$0</span>
+              </div>
+              <div class="stat">
+                <span class="stat-label">Personal Acct</span>
+                <span class="stat-value" id="bizPersonalValue">$0</span>
+              </div>
+              <div class="stat">
+                <span class="stat-label">Goal Progress</span>
+                <span class="stat-value" id="bizGoalProgress">0%</span>
+              </div>
+              <div class="stat">
+                <span class="stat-label">Phase</span>
+                <span class="stat-value" id="bizPhase">—</span>
+              </div>
+              <div class="stat">
+                <span class="stat-label">Profitable Days</span>
+                <span class="stat-value" id="bizProfitDays">—</span>
+              </div>
+              <div class="stat">
+                <span class="stat-label">Accounts Blown</span>
+                <span class="stat-value" id="bizBlown">0</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Budget / Allocations -->
+          <div class="section">
+            <div class="section-header"><h2>Income Allocation</h2></div>
+            <div id="allocationBars" class="allocation-bars">
+              <div class="empty-state">Loading allocations...</div>
+            </div>
+          </div>
+
+          <!-- Goal Tracker -->
+          <div class="section">
+            <div class="section-header"><h2>Next Goal</h2></div>
+            <div id="goalTracker" class="goal-tracker">
+              <div class="goal-title" id="goalTitle">Save $5,000 for personal account</div>
+              <div class="gauge-bar" style="height:10px; margin: 10px 0;">
+                <div class="gauge-fill" id="goalFill" style="width:0%; background: var(--gold)"></div>
+              </div>
+              <div style="display:flex; justify-content:space-between; font-family:var(--font-mono); font-size:12px; color:var(--text-2)">
+                <span id="goalCurrent">$0</span>
+                <span id="goalTarget">$5,000</span>
+              </div>
+            </div>
           </div>
         </div>
       </div>

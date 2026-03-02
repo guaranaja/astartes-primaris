@@ -90,6 +90,9 @@ func (s *Server) routes() {
 
 	// WebSocket
 	s.mux.HandleFunc("GET /ws", s.hub.HandleWebSocket)
+
+	// Council
+	s.registerCouncilRoutes()
 }
 
 // ─── Health & Status ────────────────────────────────────────

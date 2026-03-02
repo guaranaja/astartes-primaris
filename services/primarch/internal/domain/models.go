@@ -167,3 +167,197 @@ type SystemEvent struct {
 	Timestamp time.Time              `json:"timestamp"`
 	Data      map[string]interface{} `json:"data,omitempty"`
 }
+
+// ═══════════════════════════════════════════════════════════
+// COUNCIL — Financial War Room & Career Progression
+// ═══════════════════════════════════════════════════════════
+//
+// The Council manages the business side of trading:
+// - Career phase progression (Initiate → Chapter Master)
+// - Account tracking (prop, personal, paper)
+// - Payout management and withdrawal advice
+// - Budget integration and cash flow allocation
+// - Business metrics and goal tracking
+
+// Phase represents a stage in the trader's career progression.
+// Modeled after Space Marine rank advancement.
+type Phase string
+
+const (
+	// PhaseInitiate: Prop trading only. Prove you can be consistently profitable.
+	// Goal: Generate regular payouts from prop accounts.
+	PhaseInitiate Phase = "initiate"
+
+	// PhaseNeophyte: Prop profits fund a personal MES account ($5-10K).
+	// Run same strategies on personal account alongside prop.
+	PhaseNeophyte Phase = "neophyte"
+
+	// PhaseBattleBrother: Personal account hits $25K. PDT rule eliminated.
+	// Options trading unlocked (Fortress Secundus comes online).
+	PhaseBattleBrother Phase = "battle_brother"
+
+	// PhaseVeteran: Graduate MES to ES. 10x position size on personal.
+	// Personal income begins exceeding prop income.
+	PhaseVeteran Phase = "veteran"
+
+	// PhaseCaptain: Drop prop trading entirely. Full autonomy.
+	// No profit splits, no rules, no restrictions.
+	PhaseCaptain Phase = "captain"
+
+	// PhaseChapterMaster: Full business operation. LLC, tax optimization,
+	// multiple asset classes, scaling strategies.
+	PhaseChapterMaster Phase = "chapter_master"
+)
+
+// PhaseConfig defines a phase's goals, milestones, and unlock criteria.
+type PhaseConfig struct {
+	Phase       Phase       `json:"phase"`
+	Name        string      `json:"name"`
+	Title       string      `json:"title"`       // WH40K rank
+	Description string      `json:"description"`
+	Milestones  []Milestone `json:"milestones"`
+	UnlockWhen  []Condition `json:"unlock_when"` // ALL must be true to advance
+	Active      bool        `json:"active"`
+	CompletedAt *time.Time  `json:"completed_at,omitempty"`
+}
+
+// Milestone is a trackable goal within a phase.
+type Milestone struct {
+	ID          string  `json:"id"`
+	Name        string  `json:"name"`
+	Description string  `json:"description"`
+	Target      float64 `json:"target"`
+	Current     float64 `json:"current"`
+	Unit        string  `json:"unit"` // "usd", "pct", "count", "days"
+	Completed   bool    `json:"completed"`
+}
+
+// Condition defines a requirement for phase advancement.
+type Condition struct {
+	Type    string  `json:"type"` // "balance_gte", "payout_count_gte", "win_rate_gte", "profitable_days_gte"
+	Target  float64 `json:"target"`
+	Current float64 `json:"current"`
+	Met     bool    `json:"met"`
+	Label   string  `json:"label"`
+}
+
+// Roadmap holds the full career progression state.
+type Roadmap struct {
+	CurrentPhase Phase         `json:"current_phase"`
+	Phases       []PhaseConfig `json:"phases"`
+	StartedAt    time.Time     `json:"started_at"`
+	UpdatedAt    time.Time     `json:"updated_at"`
+}
+
+// ─── Accounts & Finances ────────────────────────────────────
+
+// AccountType categorizes trading accounts.
+type AccountType string
+
+const (
+	AccountProp     AccountType = "prop"     // Funded/prop firm (Apex, ProjectX)
+	AccountPersonal AccountType = "personal" // Personal brokerage
+	AccountPaper    AccountType = "paper"    // Paper/sim
+)
+
+// TradingAccount represents a broker account with financial tracking.
+type TradingAccount struct {
+	ID             string      `json:"id"`
+	Name           string      `json:"name"`
+	Broker         string      `json:"broker"` // "apex", "projectx", "ibkr", "tastytrade"
+	Type           AccountType `json:"type"`
+	AccountNumber  string      `json:"account_number,omitempty"`
+	InitialBalance float64     `json:"initial_balance"`
+	CurrentBalance float64     `json:"current_balance"`
+	TotalPnL       float64     `json:"total_pnl"`
+	TotalPayouts   float64     `json:"total_payouts"`
+	PayoutCount    int         `json:"payout_count"`
+	ProfitSplit    float64     `json:"profit_split"` // e.g. 0.90 = you keep 90%
+	Status         string      `json:"status"`       // "active", "blown", "graduated", "closed"
+	Instruments    []string    `json:"instruments"`
+	CreatedAt      time.Time   `json:"created_at"`
+	UpdatedAt      time.Time   `json:"updated_at"`
+}
+
+// Payout records a withdrawal from a trading account.
+type Payout struct {
+	ID          string     `json:"id"`
+	AccountID   string     `json:"account_id"`
+	GrossAmount float64    `json:"gross_amount"` // Before prop firm split
+	NetAmount   float64    `json:"net_amount"`   // After split (what you receive)
+	Destination string     `json:"destination"`  // "bank", "personal_trading", "savings", "bills"
+	Status      string     `json:"status"`       // "pending", "processing", "completed"
+	RequestedAt time.Time  `json:"requested_at"`
+	CompletedAt *time.Time `json:"completed_at,omitempty"`
+	Note        string     `json:"note,omitempty"`
+}
+
+// ─── Budget Integration ─────────────────────────────────────
+
+// BudgetCategory tracks spending/income in a category.
+type BudgetCategory struct {
+	ID      string  `json:"id"`
+	Name    string  `json:"name"`    // "Bills", "Trading Capital", "Taxes", "Savings"
+	Type    string  `json:"type"`    // "expense", "income", "transfer"
+	Monthly float64 `json:"monthly"` // Monthly target/budget
+	Current float64 `json:"current"` // Current month spend/income
+	Color   string  `json:"color"`
+}
+
+// BudgetSummary is the monthly financial overview.
+type BudgetSummary struct {
+	Month            string           `json:"month"` // "2026-03"
+	TradingIncome    float64          `json:"trading_income"`
+	PropPayouts      float64          `json:"prop_payouts"`
+	PersonalPnL      float64          `json:"personal_pnl"`
+	TotalExpenses    float64          `json:"total_expenses"`
+	NetCashFlow      float64          `json:"net_cash_flow"`
+	SavingsRate      float64          `json:"savings_rate"`
+	TradingCapitalIn float64          `json:"trading_capital_in"`
+	Categories       []BudgetCategory `json:"categories"`
+	Allocations      []Allocation     `json:"allocations"`
+}
+
+// Allocation defines how trading income should be distributed.
+type Allocation struct {
+	Category   string  `json:"category"`   // "bills", "trading_capital", "taxes", "savings", "personal"
+	Percentage float64 `json:"percentage"` // Target % of net income
+	Amount     float64 `json:"amount"`     // Actual amount this period
+}
+
+// ─── Withdrawal Advisor ─────────────────────────────────────
+
+// WithdrawalAdvice is the Council's recommendation on when/how much to withdraw.
+type WithdrawalAdvice struct {
+	AccountID       string       `json:"account_id"`
+	AccountName     string       `json:"account_name"`
+	CurrentBalance  float64      `json:"current_balance"`
+	AvailableProfit float64      `json:"available_profit"`
+	RecommendedAmt  float64      `json:"recommended_amount"`
+	Urgency         string       `json:"urgency"` // "now", "soon", "hold", "wait"
+	Reason          string       `json:"reason"`
+	Allocations     []Allocation `json:"allocations"`
+	NextReviewAt    time.Time    `json:"next_review_at"`
+}
+
+// ─── Business Metrics ───────────────────────────────────────
+
+// BusinessMetrics tracks overall business health.
+type BusinessMetrics struct {
+	LifetimePnL          float64 `json:"lifetime_pnl"`
+	LifetimePayouts      float64 `json:"lifetime_payouts"`
+	AccountsBlown        int     `json:"accounts_blown"`
+	AccountsGraduated    int     `json:"accounts_graduated"`
+	TotalTradingDays     int     `json:"total_trading_days"`
+	ProfitableDays       int     `json:"profitable_days"`
+	MonthlyPnL           float64 `json:"monthly_pnl"`
+	MonthlyPayouts       float64 `json:"monthly_payouts"`
+	MonthlyExpenses      float64 `json:"monthly_expenses"`
+	MonthlyNetIncome     float64 `json:"monthly_net_income"`
+	PersonalAccountValue float64 `json:"personal_account_value"`
+	PersonalAccountGoal  float64 `json:"personal_account_goal"`
+	GoalProgress         float64 `json:"goal_progress"`
+	CurrentPhase         Phase   `json:"current_phase"`
+	PhaseProgress        float64 `json:"phase_progress"`
+	DaysInPhase          int     `json:"days_in_phase"`
+}

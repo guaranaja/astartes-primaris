@@ -9,6 +9,14 @@ const App = {
     marines: [],
     events: [],
     connected: false,
+    // Council
+    roadmap: null,
+    accounts: [],
+    payouts: [],
+    budget: null,
+    allocations: [],
+    withdrawalAdvice: [],
+    metrics: null,
   },
 
   // ─── Init ──────────────────────────────────────────────
@@ -19,6 +27,7 @@ const App = {
     this.connectSSE();
     this.pollStatus();
     this.loadData();
+    this.loadCouncil();
   },
 
   // ─── API Client ────────────────────────────────────────
@@ -527,6 +536,301 @@ const App = {
     this.flash('Forge not connected yet — wire up astartes-futures backtester', 'info');
   },
 
+  // ─── Council ──────────────────────────────────────────
+
+  async loadCouncil() {
+    try {
+      const [roadmap, accounts, payouts, budget, allocations, advice, metrics] = await Promise.all([
+        this.api('/council/roadmap'),
+        this.api('/council/accounts'),
+        this.api('/council/payouts'),
+        this.api('/council/budget'),
+        this.api('/council/allocations'),
+        this.api('/council/withdrawal-advice'),
+        this.api('/council/metrics'),
+      ]);
+      this.state.roadmap = roadmap;
+      this.state.accounts = accounts || [];
+      this.state.payouts = payouts || [];
+      this.state.budget = budget;
+      this.state.allocations = allocations || [];
+      this.state.withdrawalAdvice = advice || [];
+      this.state.metrics = metrics;
+      this.renderCouncil();
+    } catch (e) {
+      // Primarch might not be running
+    }
+  },
+
+  renderCouncil() {
+    this.renderPhaseTracker();
+    this.renderAccounts();
+    this.renderWithdrawalAdvice();
+    this.renderPayouts();
+    this.renderBusinessMetrics();
+    this.renderAllocations();
+    this.renderGoalTracker();
+  },
+
+  renderPhaseTracker() {
+    const rm = this.state.roadmap;
+    if (!rm) return;
+    const el = document.getElementById('phaseTracker');
+    const label = document.getElementById('currentPhaseLabel');
+    label.textContent = (rm.current_phase || 'initiate').toUpperCase().replace('_', ' ');
+
+    el.innerHTML = rm.phases.map(p => {
+      let cls = 'locked';
+      if (p.active) cls = 'active';
+      else if (p.completed_at) cls = 'completed';
+      else {
+        const phaseOrder = ['initiate', 'neophyte', 'battle_brother', 'veteran', 'captain', 'chapter_master'];
+        const currentIdx = phaseOrder.indexOf(rm.current_phase);
+        const thisIdx = phaseOrder.indexOf(p.phase);
+        if (thisIdx < currentIdx) cls = 'completed';
+      }
+      return `
+        <div class="phase-card ${cls}">
+          ${cls === 'completed' ? '<span class="phase-check">✓</span>' : ''}
+          <div class="phase-rank">${esc(p.title)}</div>
+          <div class="phase-name">${esc(p.name)}</div>
+          <div class="phase-desc">${esc(p.description).substring(0, 80)}${p.description.length > 80 ? '...' : ''}</div>
+        </div>`;
+    }).join('');
+  },
+
+  renderAccounts() {
+    const el = document.getElementById('accountList');
+    if (!this.state.accounts.length) {
+      el.innerHTML = '<div class="empty-state">No accounts yet. Add your prop accounts to start tracking.</div>';
+      return;
+    }
+    el.innerHTML = this.state.accounts.map(a => {
+      const pnlClass = a.total_pnl >= 0 ? 'positive' : 'negative';
+      return `
+        <div class="account-card">
+          <span class="account-type-badge ${a.type}">${a.type}</span>
+          <div class="account-info">
+            <div class="account-name">${esc(a.name)}</div>
+            <div class="account-detail">${esc(a.broker)} · ${(a.instruments || []).join(', ') || 'N/A'} · ${a.payout_count} payouts</div>
+          </div>
+          <div class="account-balance">
+            <div class="account-balance-value">$${fmt(a.current_balance)}</div>
+            <div class="account-balance-pnl ${pnlClass}">${a.total_pnl >= 0 ? '+' : ''}$${fmt(a.total_pnl)} · ${Math.round(a.profit_split * 100)}% split</div>
+          </div>
+        </div>`;
+    }).join('');
+  },
+
+  renderWithdrawalAdvice() {
+    const el = document.getElementById('withdrawalAdvice');
+    if (!this.state.withdrawalAdvice.length) {
+      el.innerHTML = '<div class="empty-state">Add prop accounts to get withdrawal advice</div>';
+      return;
+    }
+    el.innerHTML = this.state.withdrawalAdvice.map(w => `
+      <div class="withdrawal-card urgency-${w.urgency}">
+        <div class="withdrawal-header">
+          <span class="withdrawal-account">${esc(w.account_name)}</span>
+          <span class="withdrawal-urgency ${w.urgency}">${w.urgency}</span>
+        </div>
+        <div class="withdrawal-reason">${esc(w.reason)}</div>
+        ${w.recommended_amount > 0 ? `
+          <div class="withdrawal-amount">Withdraw: $${fmt(w.recommended_amount)}</div>
+          <div class="withdrawal-splits">
+            ${(w.allocations || []).map(a => `
+              <span class="withdrawal-split">${a.category}: $${fmt(a.amount)}</span>
+            `).join('')}
+          </div>
+        ` : ''}
+      </div>
+    `).join('');
+  },
+
+  renderPayouts() {
+    const el = document.getElementById('payoutList');
+    if (!this.state.payouts.length) {
+      el.innerHTML = '<div class="empty-state">No payouts recorded yet</div>';
+      return;
+    }
+    el.innerHTML = this.state.payouts.map(p => `
+      <div class="payout-item">
+        <span class="payout-date">${formatDate(p.requested_at)}</span>
+        <span class="payout-account">${esc(p.account_id)}</span>
+        <span class="payout-amount">+$${fmt(p.net_amount)}</span>
+        <span class="payout-dest">→ ${p.destination}</span>
+      </div>
+    `).join('');
+  },
+
+  renderBusinessMetrics() {
+    const m = this.state.metrics;
+    if (!m) return;
+    setText('bizLifetimePnl', '$' + fmt(m.lifetime_pnl));
+    setText('bizLifetimePayouts', '$' + fmt(m.lifetime_payouts));
+    setText('bizMonthlyNet', '$' + fmt(m.monthly_net_income));
+    setText('bizPersonalValue', '$' + fmt(m.personal_account_value));
+    setText('bizGoalProgress', Math.round(m.goal_progress * 100) + '%');
+    setText('bizPhase', (m.current_phase || '—').replace('_', ' '));
+    setText('bizProfitDays', m.profitable_days + '/' + m.total_trading_days);
+    setText('bizBlown', m.accounts_blown);
+  },
+
+  renderAllocations() {
+    const el = document.getElementById('allocationBars');
+    const allocs = this.state.allocations;
+    if (!allocs.length) return;
+    const colors = { bills: '#ef4444', trading_capital: '#60a5fa', taxes: '#fbbf24', savings: '#2dd4a0', personal: '#a78bfa' };
+    el.innerHTML = allocs.map(a => `
+      <div class="alloc-row">
+        <span class="alloc-label">${esc(a.category)}</span>
+        <div class="alloc-bar-wrap">
+          <div class="alloc-bar-fill" style="width:${a.percentage}%; background:${colors[a.category] || 'var(--text-2)'}"></div>
+        </div>
+        <span class="alloc-pct">${a.percentage}%</span>
+      </div>
+    `).join('');
+  },
+
+  renderGoalTracker() {
+    const m = this.state.metrics;
+    if (!m) return;
+    const pct = Math.min(m.goal_progress * 100, 100);
+    setText('goalTitle', `Grow personal account to $${fmt(m.personal_account_goal)}`);
+    setText('goalCurrent', '$' + fmt(m.personal_account_value));
+    setText('goalTarget', '$' + fmt(m.personal_account_goal));
+    document.getElementById('goalFill').style.width = pct + '%';
+  },
+
+  addAccount() {
+    this.openModal(`
+      <h3 style="margin-bottom: 16px">Add Trading Account</h3>
+      <form onsubmit="App.submitAccount(event)" style="display:flex;flex-direction:column;gap:12px">
+        <div class="form-row">
+          <label>ID</label>
+          <input type="text" id="newAcctId" class="input" placeholder="apex-1" required>
+        </div>
+        <div class="form-row">
+          <label>Name</label>
+          <input type="text" id="newAcctName" class="input" placeholder="Apex Account #1" required>
+        </div>
+        <div class="form-row two-col">
+          <div>
+            <label>Broker</label>
+            <select id="newAcctBroker" class="input">
+              <option value="apex">Apex</option>
+              <option value="projectx">ProjectX</option>
+              <option value="ibkr">IBKR</option>
+              <option value="tastytrade">TastyTrade</option>
+            </select>
+          </div>
+          <div>
+            <label>Type</label>
+            <select id="newAcctType" class="input">
+              <option value="prop">Prop (Funded)</option>
+              <option value="personal">Personal</option>
+              <option value="paper">Paper</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-row two-col">
+          <div>
+            <label>Initial Balance</label>
+            <input type="number" id="newAcctBalance" class="input" value="50000">
+          </div>
+          <div>
+            <label>Profit Split (%)</label>
+            <input type="number" id="newAcctSplit" class="input" value="90" min="0" max="100">
+          </div>
+        </div>
+        <div class="form-row">
+          <label>Instruments</label>
+          <input type="text" id="newAcctInstruments" class="input" placeholder="MES, ES, NQ (comma separated)">
+        </div>
+        <button type="submit" class="btn btn-primary btn-lg">Add Account</button>
+      </form>
+    `);
+  },
+
+  async submitAccount(e) {
+    e.preventDefault();
+    const balance = parseFloat(document.getElementById('newAcctBalance').value);
+    try {
+      await this.api('/council/accounts', {
+        method: 'POST',
+        body: {
+          id: document.getElementById('newAcctId').value,
+          name: document.getElementById('newAcctName').value,
+          broker: document.getElementById('newAcctBroker').value,
+          type: document.getElementById('newAcctType').value,
+          initial_balance: balance,
+          current_balance: balance,
+          profit_split: parseFloat(document.getElementById('newAcctSplit').value) / 100,
+          instruments: document.getElementById('newAcctInstruments').value.split(',').map(s => s.trim()).filter(Boolean),
+        },
+      });
+      this.closeModal();
+      this.loadCouncil();
+    } catch (err) {
+      this.flash(err.message, 'error');
+    }
+  },
+
+  recordPayout() {
+    const accounts = this.state.accounts.filter(a => a.type === 'prop' && a.status === 'active');
+    this.openModal(`
+      <h3 style="margin-bottom: 16px">Record Payout</h3>
+      <form onsubmit="App.submitPayout(event)" style="display:flex;flex-direction:column;gap:12px">
+        <div class="form-row">
+          <label>Account</label>
+          <select id="payoutAcct" class="input" required>
+            ${accounts.map(a => `<option value="${a.id}">${esc(a.name)} ($${fmt(a.current_balance)})</option>`).join('')}
+            ${accounts.length === 0 ? '<option value="">No prop accounts</option>' : ''}
+          </select>
+        </div>
+        <div class="form-row">
+          <label>Gross Amount (before split)</label>
+          <input type="number" id="payoutGross" class="input" placeholder="1000" required>
+        </div>
+        <div class="form-row">
+          <label>Destination</label>
+          <select id="payoutDest" class="input">
+            <option value="bank">Bank Account</option>
+            <option value="personal_trading">Personal Trading Account</option>
+            <option value="savings">Savings</option>
+            <option value="bills">Bills</option>
+          </select>
+        </div>
+        <div class="form-row">
+          <label>Note (optional)</label>
+          <input type="text" id="payoutNote" class="input" placeholder="Monthly withdrawal">
+        </div>
+        <button type="submit" class="btn btn-primary btn-lg">Record Payout</button>
+      </form>
+    `);
+  },
+
+  async submitPayout(e) {
+    e.preventDefault();
+    try {
+      await this.api('/council/payouts', {
+        method: 'POST',
+        body: {
+          id: 'payout-' + Date.now(),
+          account_id: document.getElementById('payoutAcct').value,
+          gross_amount: parseFloat(document.getElementById('payoutGross').value),
+          destination: document.getElementById('payoutDest').value,
+          note: document.getElementById('payoutNote').value,
+        },
+      });
+      this.closeModal();
+      this.loadCouncil();
+      this.flash('Payout recorded', 'info');
+    } catch (err) {
+      this.flash(err.message, 'error');
+    }
+  },
+
   // ─── Navigation ───────────────────────────────────────
 
   bindNav() {
@@ -559,8 +863,8 @@ const App = {
       }
 
       // Number keys switch views
-      if (e.key >= '1' && e.key <= '4') {
-        const views = ['throne', 'tactical', 'forge', 'performance'];
+      if (e.key >= '1' && e.key <= '5') {
+        const views = ['throne', 'tactical', 'forge', 'performance', 'council'];
         this.switchView(views[parseInt(e.key) - 1]);
         return;
       }
@@ -619,6 +923,7 @@ const App = {
       { icon: '◎', label: 'Tactical Display', key: '2', action: () => this.switchView('tactical') },
       { icon: '⚒', label: 'Forge Console', key: '3', action: () => this.switchView('forge') },
       { icon: '📊', label: 'Performance', key: '4', action: () => this.switchView('performance') },
+      { icon: '⚖', label: 'Council', key: '5', action: () => this.switchView('council') },
       { icon: '+', label: 'Create Fortress', key: '', action: () => this.createFortress() },
       { icon: '⊘', label: 'Kill Switch', key: 'Ctrl+K', action: () => this.killSwitch() },
       { icon: '↻', label: 'Refresh Data', key: 'R', action: () => this.loadData() },
@@ -700,6 +1005,22 @@ function formatTime(ts) {
   if (!ts) return '';
   const d = new Date(ts);
   return d.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+
+function formatDate(ts) {
+  if (!ts) return '';
+  const d = new Date(ts);
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
+function fmt(n) {
+  if (n == null) return '0';
+  return Number(n).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+}
+
+function setText(id, val) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = val;
 }
 
 // ─── Boot ─────────────────────────────────────────────────

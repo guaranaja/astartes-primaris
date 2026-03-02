@@ -12,19 +12,29 @@ import (
 
 // Store is a thread-safe in-memory registry for the Imperium hierarchy.
 type Store struct {
-	mu        sync.RWMutex
-	fortresses map[string]*domain.Fortress
-	companies  map[string]*domain.Company
-	marines    map[string]*domain.Marine
-	cycles     []domain.MarineCycle
+	mu          sync.RWMutex
+	fortresses  map[string]*domain.Fortress
+	companies   map[string]*domain.Company
+	marines     map[string]*domain.Marine
+	cycles      []domain.MarineCycle
+	// Council
+	accounts    map[string]*domain.TradingAccount
+	payouts     []domain.Payout
+	budget      *domain.BudgetSummary
+	allocations []domain.Allocation
+	roadmap     *domain.Roadmap
 }
 
 // New creates a new empty store.
 func New() *Store {
 	return &Store{
-		fortresses: make(map[string]*domain.Fortress),
-		companies:  make(map[string]*domain.Company),
-		marines:    make(map[string]*domain.Marine),
+		fortresses:  make(map[string]*domain.Fortress),
+		companies:   make(map[string]*domain.Company),
+		marines:     make(map[string]*domain.Marine),
+		accounts:    make(map[string]*domain.TradingAccount),
+		allocations: DefaultAllocations(),
+		budget:      DefaultBudget(),
+		roadmap:     DefaultRoadmap(),
 	}
 }
 

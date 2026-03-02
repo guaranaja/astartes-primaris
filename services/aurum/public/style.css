@@ -800,6 +800,218 @@ select.input option { background: var(--bg-1); }
   color: var(--text-3);
 }
 
+/* ─── Council View ───────────────────────────────────────── */
+
+.council-grid {
+  display: grid;
+  grid-template-columns: 1fr 340px;
+  gap: var(--gap);
+}
+.council-left { display: flex; flex-direction: column; gap: var(--gap); }
+.council-right { display: flex; flex-direction: column; gap: var(--gap); }
+
+/* Phase Tracker */
+.phase-tracker {
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.phase-card {
+  flex: 1;
+  min-width: 140px;
+  padding: 12px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  text-align: center;
+  transition: all 0.2s;
+  position: relative;
+}
+.phase-card.completed {
+  border-color: var(--green-dim);
+  background: rgba(45, 212, 160, 0.05);
+}
+.phase-card.active {
+  border-color: var(--gold);
+  box-shadow: 0 0 12px rgba(212, 168, 67, 0.15);
+}
+.phase-card.locked {
+  opacity: 0.4;
+}
+.phase-rank {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-3);
+  margin-bottom: 4px;
+}
+.phase-card.active .phase-rank { color: var(--gold); }
+.phase-card.completed .phase-rank { color: var(--green); }
+.phase-name {
+  font-weight: 600;
+  font-size: 13px;
+  margin-bottom: 6px;
+}
+.phase-desc {
+  font-size: 10px;
+  color: var(--text-2);
+  line-height: 1.4;
+}
+.phase-check {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  color: var(--green);
+  font-size: 14px;
+}
+
+/* Account Cards */
+.account-list { display: flex; flex-direction: column; gap: 8px; }
+
+.account-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.account-type-badge {
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 9px;
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+.account-type-badge.prop { background: rgba(251, 191, 36, 0.15); color: var(--amber); border: 1px solid rgba(251, 191, 36, 0.3); }
+.account-type-badge.personal { background: rgba(96, 165, 250, 0.15); color: var(--blue); border: 1px solid rgba(96, 165, 250, 0.3); }
+.account-type-badge.paper { background: rgba(80, 80, 104, 0.3); color: var(--text-2); border: 1px solid var(--border); }
+
+.account-info { flex: 1; min-width: 0; }
+.account-name { font-weight: 600; font-size: 13px; }
+.account-detail { font-size: 11px; color: var(--text-2); font-family: var(--font-mono); }
+
+.account-balance {
+  text-align: right;
+  font-family: var(--font-mono);
+}
+.account-balance-value { font-size: 16px; font-weight: 700; }
+.account-balance-pnl { font-size: 11px; }
+
+/* Withdrawal Advice */
+.withdrawal-list { display: flex; flex-direction: column; gap: 8px; }
+
+.withdrawal-card {
+  padding: 12px 14px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.withdrawal-card.urgency-now { border-left: 3px solid var(--green); }
+.withdrawal-card.urgency-soon { border-left: 3px solid var(--amber); }
+.withdrawal-card.urgency-hold { border-left: 3px solid var(--text-3); }
+.withdrawal-card.urgency-wait { border-left: 3px solid var(--border); }
+
+.withdrawal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+.withdrawal-account { font-weight: 600; font-size: 13px; }
+.withdrawal-urgency {
+  font-size: 10px;
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  padding: 2px 8px;
+  border-radius: var(--radius);
+}
+.withdrawal-urgency.now { color: var(--green); background: rgba(45, 212, 160, 0.1); }
+.withdrawal-urgency.soon { color: var(--amber); background: rgba(251, 191, 36, 0.1); }
+.withdrawal-urgency.hold { color: var(--text-2); background: var(--bg-3); }
+.withdrawal-urgency.wait { color: var(--text-3); background: var(--bg-3); }
+
+.withdrawal-reason { font-size: 12px; color: var(--text-1); margin-bottom: 8px; }
+.withdrawal-amount {
+  font-family: var(--font-mono);
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--green);
+}
+.withdrawal-splits {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+.withdrawal-split {
+  font-size: 10px;
+  font-family: var(--font-mono);
+  padding: 2px 6px;
+  background: var(--bg-3);
+  border-radius: var(--radius);
+  color: var(--text-2);
+}
+
+/* Allocation Bars */
+.allocation-bars { display: flex; flex-direction: column; gap: 10px; }
+
+.alloc-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.alloc-label {
+  width: 100px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-2);
+}
+.alloc-bar-wrap {
+  flex: 1;
+  height: 8px;
+  background: var(--bg-0);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.alloc-bar-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.5s ease;
+}
+.alloc-pct {
+  width: 40px;
+  text-align: right;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-1);
+}
+
+/* Payout List */
+.payout-list { display: flex; flex-direction: column; gap: 4px; }
+.payout-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--bg-2);
+  font-size: 12px;
+}
+.payout-date { font-family: var(--font-mono); font-size: 10px; color: var(--text-3); width: 80px; }
+.payout-account { color: var(--text-1); flex: 1; }
+.payout-amount { font-family: var(--font-mono); font-weight: 600; color: var(--green); }
+.payout-dest { font-size: 10px; color: var(--text-3); font-family: var(--font-mono); }
+
+/* Goal Tracker */
+.goal-tracker { padding: 4px 0; }
+.goal-title { font-size: 14px; font-weight: 600; color: var(--text-0); }
+
 /* ─── Responsive ─────────────────────────────────────────── */
 
 @media (max-width: 900px) {
