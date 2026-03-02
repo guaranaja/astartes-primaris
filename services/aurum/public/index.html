@@ -50,6 +50,34 @@
     <!-- ═══ VIEW: Command Throne ═══════════════════════════ -->
     <div class="view active" id="view-throne">
 
+      <!-- Summary Banner -->
+      <div class="summary-banner" id="summaryBanner">
+        <div class="summary-item">
+          <span class="summary-label">Fortresses</span>
+          <span class="summary-value" id="sumFortresses">0</span>
+        </div>
+        <div class="summary-divider"></div>
+        <div class="summary-item">
+          <span class="summary-label">Total Marines</span>
+          <span class="summary-value" id="sumMarines">0</span>
+        </div>
+        <div class="summary-divider"></div>
+        <div class="summary-item">
+          <span class="summary-label">Active</span>
+          <span class="summary-value" id="sumActive" style="color:var(--green)">0</span>
+        </div>
+        <div class="summary-divider"></div>
+        <div class="summary-item">
+          <span class="summary-label">Lifetime Payouts</span>
+          <span class="summary-value" id="sumPayouts">$0</span>
+        </div>
+        <div class="summary-divider"></div>
+        <div class="summary-item">
+          <span class="summary-label">Phase</span>
+          <span class="summary-value" id="sumPhase" style="color:var(--gold)">INITIATE</span>
+        </div>
+      </div>
+
       <!-- Status Cards Row -->
       <div class="status-cards">
         <div class="card card-pnl">
@@ -161,7 +189,14 @@
             <h2>Recent Jobs</h2>
           </div>
           <div id="forgeJobs" class="forge-jobs">
-            <div class="empty-state">No backtest jobs yet</div>
+            <div class="coming-soon">
+              <div class="coming-soon-icon">///</div>
+              <div class="coming-soon-title">Forge Console</div>
+              <div class="coming-soon-desc">
+                Submit backtests and strategy analyses once the Vindicare strategies are imported
+                from astartes-futures. Forge will connect to the Strategos backtesting engine.
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -183,7 +218,14 @@
             </div>
           </div>
           <div class="chart-container" id="equityChart">
-            <div class="empty-state">Connect to Librarium for historical data</div>
+            <div class="coming-soon">
+              <div class="coming-soon-icon">///</div>
+              <div class="coming-soon-title">Equity Curve</div>
+              <div class="coming-soon-desc">
+                Live equity tracking activates when marines execute trades through Librarium.
+                Historical data will render here as an interactive chart.
+              </div>
+            </div>
           </div>
         </div>
 
@@ -244,7 +286,7 @@
                 </tr>
               </thead>
               <tbody>
-                <tr><td colspan="8" class="empty-state">No trades recorded</td></tr>
+                <tr><td colspan="8" class="empty-state">Trades appear here when marines execute via Strategos</td></tr>
               </tbody>
             </table>
           </div>

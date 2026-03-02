@@ -151,6 +151,19 @@ const App = {
     document.getElementById('primarchUptime').textContent = status.uptime || '';
     document.getElementById('marineCount').textContent = status.marines?.total || 0;
     document.getElementById('activeMarines').textContent = status.marines?.active || 0;
+
+    // Summary banner
+    setText('sumFortresses', status.fortresses || 0);
+    setText('sumMarines', status.marines?.total || 0);
+    setText('sumActive', status.marines?.active || 0);
+  },
+
+  renderSummaryBanner() {
+    const m = this.state.metrics;
+    if (m) {
+      setText('sumPayouts', '$' + fmt(m.lifetime_payouts));
+      setText('sumPhase', (m.current_phase || 'initiate').toUpperCase().replace('_', ' '));
+    }
   },
 
   // ─── Render: Command Throne ───────────────────────────
@@ -170,25 +183,36 @@ const App = {
 
     container.innerHTML = this.state.fortresses.map(f => {
       const companies = f.companies || [];
+      const allMarines = companies.flatMap(c => c.marines || []);
+      const active = allMarines.filter(m => !['dormant','disabled','failed'].includes(m.status)).length;
+      const dormant = allMarines.filter(m => m.status === 'dormant').length;
+      const failed = allMarines.filter(m => m.status === 'failed').length;
+      const disabled = allMarines.filter(m => m.status === 'disabled').length;
       return `
         <div class="fortress-card" onclick="App.viewFortress('${f.id}')">
           <div class="fortress-header">
             <span class="fortress-name">${esc(f.name)}</span>
             <span class="fortress-class">${esc(f.asset_class)}</span>
           </div>
+          <div style="display:flex;gap:8px;margin-bottom:10px;font-size:11px;font-family:var(--font-mono)">
+            <span style="color:var(--green)">${active} active</span>
+            <span style="color:var(--text-3)">${dormant} dormant</span>
+            ${failed > 0 ? `<span style="color:var(--red)">${failed} failed</span>` : ''}
+            ${disabled > 0 ? `<span style="color:var(--text-3);opacity:0.5">${disabled} disabled</span>` : ''}
+          </div>
           ${companies.map(c => {
             const marines = c.marines || [];
-            const activeCount = marines.filter(m => !['dormant','disabled','failed'].includes(m.status)).length;
+            const compActive = marines.filter(m => !['dormant','disabled','failed'].includes(m.status)).length;
             return `
               <div class="company-row">
-                <span class="company-name">${esc(c.name)}</span>
+                <span class="company-name">${esc(c.name)} <span style="color:var(--text-3);font-size:10px;margin-left:4px">${c.type || ''}</span></span>
                 <span class="company-marines">
                   ${marines.length} marines
-                  ${activeCount > 0 ? `<span class="marine-pill active">${activeCount} active</span>` : ''}
+                  ${compActive > 0 ? `<span class="marine-pill active">${compActive} active</span>` : ''}
                 </span>
               </div>`;
           }).join('')}
-          ${companies.length === 0 ? '<div class="company-row"><span class="company-name" style="color:var(--text-3)">No companies</span></div>' : ''}
+          ${companies.length === 0 ? '<div class="company-row"><span class="company-name" style="color:var(--text-3)">No companies — click to add</span></div>' : ''}
         </div>`;
     }).join('');
   },
@@ -200,18 +224,28 @@ const App = {
     const marines = this.state.marines;
 
     if (!marines.length) {
-      container.innerHTML = '<div class="empty-state">No marines registered. Add marines via the API or Command Throne.</div>';
+      container.innerHTML = '<div class="empty-state">No marines registered. Add marines via the Command Throne.</div>';
       return;
     }
 
     container.innerHTML = marines.map(m => {
       const statusClass = ['waking','orienting','deciding','acting','reporting'].includes(m.status) ? 'active' : m.status;
+      const sched = m.schedule || {};
+      const schedType = sched.type || 'manual';
+      const schedTag = sched.enabled
+        ? `<span class="sched-tag enabled">${schedType === 'interval' ? sched.interval : schedType}</span>`
+        : `<span class="sched-tag ${schedType === 'manual' ? 'manual' : 'disabled'}">${schedType}</span>`;
+      const lastWake = m.last_wake ? formatTime(m.last_wake) : '—';
       return `
         <div class="marine-card" data-marine-id="${m.id}">
           <div class="marine-status-dot ${statusClass}"></div>
           <div class="marine-info">
             <div class="marine-name">${esc(m.name)}</div>
             <div class="marine-detail">${esc(m.strategy_name)} @ ${esc(m.broker_account_id || 'unassigned')}</div>
+            <div class="marine-schedule">
+              ${schedTag}
+              <span>last wake: ${lastWake}</span>
+            </div>
           </div>
           <div style="font-family: var(--font-mono); font-size: 11px; color: var(--text-2)">
             ${m.status}
@@ -276,11 +310,15 @@ const App = {
       wake: '▲', sleep: '▼', failed: '✕', started: '●',
       marine_scheduled: '◷', stopped: '■',
     };
+    const eventColors = {
+      wake: 'var(--green)', sleep: 'var(--blue)', failed: 'var(--red)',
+      started: 'var(--gold)', stopped: 'var(--text-3)', marine_scheduled: 'var(--amber)',
+    };
 
     container.innerHTML = this.state.events.slice(0, 50).map(e => `
       <div class="event-item">
         <span class="event-time">${formatTime(e.timestamp)}</span>
-        <span class="event-icon">${icons[e.event] || '•'}</span>
+        <span class="event-icon" style="color:${eventColors[e.event] || 'var(--text-2)'}">${icons[e.event] || '•'}</span>
         <span class="event-msg">${esc(e.service)}.${esc(e.event)}</span>
         ${e.marine_id ? `<span class="event-marine">${esc(e.marine_id)}</span>` : ''}
       </div>`
@@ -581,6 +619,7 @@ const App = {
     this.renderAllocations();
     this.renderGoals();
     this.renderBilling();
+    this.renderSummaryBanner();
   },
 
   renderPhaseTracker() {
@@ -600,12 +639,22 @@ const App = {
         const thisIdx = phaseOrder.indexOf(p.phase);
         if (thisIdx < currentIdx) cls = 'completed';
       }
+      const milestones = (p.milestones || []).slice(0, 3);
       return `
         <div class="phase-card ${cls}">
           ${cls === 'completed' ? '<span class="phase-check">✓</span>' : ''}
           <div class="phase-rank">${esc(p.title)}</div>
           <div class="phase-name">${esc(p.name)}</div>
           <div class="phase-desc">${esc(p.description).substring(0, 80)}${p.description.length > 80 ? '...' : ''}</div>
+          ${milestones.length > 0 ? `
+            <div class="phase-milestones">
+              ${milestones.map(m => `
+                <div class="phase-milestone">
+                  <span class="phase-milestone-dot ${m.completed ? 'done' : ''}"></span>
+                  <span>${esc(m.name)}</span>
+                </div>
+              `).join('')}
+            </div>` : ''}
         </div>`;
     }).join('');
   },
@@ -1303,19 +1352,28 @@ const App = {
 
   // ─── Flash Messages ───────────────────────────────────
 
+  _flashCount: 0,
+
   flash(msg, type = 'info') {
+    const offset = this._flashCount * 50;
+    this._flashCount++;
     const el = document.createElement('div');
     el.style.cssText = `
-      position: fixed; bottom: 20px; right: 20px; z-index: 3000;
+      position: fixed; bottom: ${20 + offset}px; right: 20px; z-index: 3000;
       padding: 10px 18px; border-radius: 6px; font-size: 13px;
       animation: fadeIn 0.2s ease;
       background: ${type === 'error' ? 'var(--red-dim)' : 'var(--bg-3)'};
       border: 1px solid ${type === 'error' ? 'var(--red)' : 'var(--border-light)'};
       color: ${type === 'error' ? 'var(--red)' : 'var(--text-0)'};
+      transition: opacity 0.3s, transform 0.3s;
     `;
     el.textContent = msg;
     document.body.appendChild(el);
-    setTimeout(() => el.remove(), 3000);
+    setTimeout(() => {
+      el.style.opacity = '0';
+      el.style.transform = 'translateX(20px)';
+      setTimeout(() => { el.remove(); this._flashCount = Math.max(0, this._flashCount - 1); }, 300);
+    }, 3000);
   },
 };
 
