@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AURUM — Astartes Primaris</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <!-- ─── Top Bar ───────────────────────────────────────── -->
+  <header id="topbar">
+    <div class="topbar-left">
+      <div class="logo">
+        <span class="logo-icon">⚔</span>
+        <span class="logo-text">AURUM</span>
+        <span class="logo-sub">ASTARTES PRIMARIS</span>
+      </div>
+    </div>
+    <nav class="topbar-nav">
+      <button class="nav-btn active" data-view="throne" data-key="1">
+        <span class="nav-key">1</span> Command Throne
+      </button>
+      <button class="nav-btn" data-view="tactical" data-key="2">
+        <span class="nav-key">2</span> Tactical
+      </button>
+      <button class="nav-btn" data-view="forge" data-key="3">
+        <span class="nav-key">3</span> Forge
+      </button>
+      <button class="nav-btn" data-view="performance" data-key="4">
+        <span class="nav-key">4</span> Performance
+      </button>
+    </nav>
+    <div class="topbar-right">
+      <div class="connection-status" id="connStatus">
+        <span class="status-dot"></span>
+        <span class="status-text">CONNECTING</span>
+      </div>
+      <button class="kill-switch-btn" id="killSwitchBtn" title="Emergency Kill Switch (Ctrl+K)">
+        ⊘ KILL
+      </button>
+    </div>
+  </header>
+
+  <!-- ─── Main Content ──────────────────────────────────── -->
+  <main id="content">
+
+    <!-- ═══ VIEW: Command Throne ═══════════════════════════ -->
+    <div class="view active" id="view-throne">
+
+      <!-- Status Cards Row -->
+      <div class="status-cards">
+        <div class="card card-pnl">
+          <div class="card-label">Today's P&L</div>
+          <div class="card-value" id="totalPnl">$0.00</div>
+          <div class="card-sub" id="totalPnlPct">0.00%</div>
+        </div>
+        <div class="card card-marines">
+          <div class="card-label">Marines</div>
+          <div class="card-value" id="marineCount">0</div>
+          <div class="card-sub"><span id="activeMarines">0</span> active</div>
+        </div>
+        <div class="card card-trades">
+          <div class="card-label">Trades Today</div>
+          <div class="card-value" id="tradesToday">0</div>
+          <div class="card-sub"><span id="winRate">—</span> win rate</div>
+        </div>
+        <div class="card card-uptime">
+          <div class="card-label">Primarch</div>
+          <div class="card-value" id="primarchStatus">—</div>
+          <div class="card-sub" id="primarchUptime">—</div>
+        </div>
+      </div>
+
+      <!-- Fortress Overview -->
+      <div class="section">
+        <div class="section-header">
+          <h2>Fortresses</h2>
+          <button class="btn btn-sm" onclick="App.createFortress()">+ Add Fortress</button>
+        </div>
+        <div id="fortressList" class="fortress-grid">
+          <div class="empty-state">Loading Imperium data...</div>
+        </div>
+      </div>
+
+      <!-- Event Feed -->
+      <div class="section">
+        <div class="section-header">
+          <h2>Live Feed</h2>
+          <span class="badge" id="eventCount">0</span>
+        </div>
+        <div id="eventFeed" class="event-feed">
+          <div class="empty-state">Waiting for events...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ VIEW: Tactical Display ═════════════════════════ -->
+    <div class="view" id="view-tactical">
+      <div class="tactical-layout">
+        <div class="section">
+          <div class="section-header">
+            <h2>Active Marines</h2>
+          </div>
+          <div id="tacticalMarines" class="marine-list">
+            <div class="empty-state">No active marines</div>
+          </div>
+        </div>
+        <div class="section">
+          <div class="section-header">
+            <h2>Signal Monitor</h2>
+          </div>
+          <div class="signal-monitor">
+            <div id="signalGauges" class="gauge-grid">
+              <div class="empty-state">Connect marines to see signal warmup</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ VIEW: Forge Console ════════════════════════════ -->
+    <div class="view" id="view-forge">
+      <div class="forge-layout">
+        <div class="section">
+          <div class="section-header">
+            <h2>Submit Backtest</h2>
+          </div>
+          <form id="forgeForm" class="forge-form" onsubmit="App.submitBacktest(event)">
+            <div class="form-row">
+              <label>Strategy</label>
+              <select id="forgeStrategy" class="input">
+                <option value="">Select strategy...</option>
+              </select>
+            </div>
+            <div class="form-row">
+              <label>Symbol</label>
+              <input type="text" id="forgeSymbol" class="input" value="ES" placeholder="ES, NQ, CL...">
+            </div>
+            <div class="form-row two-col">
+              <div>
+                <label>Start Date</label>
+                <input type="date" id="forgeStart" class="input">
+              </div>
+              <div>
+                <label>End Date</label>
+                <input type="date" id="forgeEnd" class="input">
+              </div>
+            </div>
+            <div class="form-row">
+              <label>Initial Capital</label>
+              <input type="number" id="forgeCapital" class="input" value="25000">
+            </div>
+            <button type="submit" class="btn btn-primary btn-lg">Launch Backtest</button>
+          </form>
+        </div>
+        <div class="section">
+          <div class="section-header">
+            <h2>Recent Jobs</h2>
+          </div>
+          <div id="forgeJobs" class="forge-jobs">
+            <div class="empty-state">No backtest jobs yet</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ VIEW: Performance ══════════════════════════════ -->
+    <div class="view" id="view-performance">
+      <div class="perf-layout">
+        <!-- Equity Curve -->
+        <div class="section perf-equity">
+          <div class="section-header">
+            <h2>Equity Curve</h2>
+            <div class="btn-group">
+              <button class="btn btn-sm active" data-range="1d">1D</button>
+              <button class="btn btn-sm" data-range="1w">1W</button>
+              <button class="btn btn-sm" data-range="1m">1M</button>
+              <button class="btn btn-sm" data-range="3m">3M</button>
+              <button class="btn btn-sm" data-range="all">ALL</button>
+            </div>
+          </div>
+          <div class="chart-container" id="equityChart">
+            <div class="empty-state">Connect to Librarium for historical data</div>
+          </div>
+        </div>
+
+        <!-- Stats Grid -->
+        <div class="section perf-stats">
+          <div class="section-header"><h2>Statistics</h2></div>
+          <div class="stats-grid">
+            <div class="stat">
+              <span class="stat-label">Total Return</span>
+              <span class="stat-value" id="statReturn">—</span>
+            </div>
+            <div class="stat">
+              <span class="stat-label">Sharpe Ratio</span>
+              <span class="stat-value" id="statSharpe">—</span>
+            </div>
+            <div class="stat">
+              <span class="stat-label">Max Drawdown</span>
+              <span class="stat-value" id="statDrawdown">—</span>
+            </div>
+            <div class="stat">
+              <span class="stat-label">Win Rate</span>
+              <span class="stat-value" id="statWinRate">—</span>
+            </div>
+            <div class="stat">
+              <span class="stat-label">Profit Factor</span>
+              <span class="stat-value" id="statProfitFactor">—</span>
+            </div>
+            <div class="stat">
+              <span class="stat-label">Total Trades</span>
+              <span class="stat-value" id="statTotalTrades">—</span>
+            </div>
+            <div class="stat">
+              <span class="stat-label">Avg Win</span>
+              <span class="stat-value" id="statAvgWin">—</span>
+            </div>
+            <div class="stat">
+              <span class="stat-label">Avg Loss</span>
+              <span class="stat-value" id="statAvgLoss">—</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Trade Journal -->
+        <div class="section perf-journal">
+          <div class="section-header"><h2>Trade Journal</h2></div>
+          <div class="table-wrap">
+            <table class="data-table" id="tradeJournal">
+              <thead>
+                <tr>
+                  <th>Time</th>
+                  <th>Marine</th>
+                  <th>Symbol</th>
+                  <th>Side</th>
+                  <th>Qty</th>
+                  <th>Entry</th>
+                  <th>Exit</th>
+                  <th>P&L</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr><td colspan="8" class="empty-state">No trades recorded</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- ─── Modals ────────────────────────────────────────── -->
+  <div id="modal" class="modal hidden">
+    <div class="modal-backdrop" onclick="App.closeModal()"></div>
+    <div class="modal-content" id="modalContent"></div>
+  </div>
+
+  <!-- ─── Command Palette (Ctrl+P) ─────────────────────── -->
+  <div id="commandPalette" class="command-palette hidden">
+    <input type="text" id="commandInput" placeholder="Type a command..." autocomplete="off">
+    <div id="commandResults" class="command-results"></div>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,10 @@
+{
+  "name": "aurum",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Astartes Primaris command dashboard",
+  "scripts": {
+    "dev": "node server.js",
+    "start": "node server.js"
+  }
+}
