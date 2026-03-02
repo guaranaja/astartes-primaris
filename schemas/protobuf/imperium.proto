@@ -1,0 +1,234 @@
+syntax = "proto3";
+
+package imperium;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/guaranaja/astartes-primaris/gen/go/imperium";
+
+// ─── Hierarchy ──────────────────────────────────────────────
+
+message Fortress {
+  string id = 1;
+  string name = 2;                    // "Fortress Primus"
+  string asset_class = 3;             // "futures", "options", "equities"
+  repeated Company companies = 4;
+  map<string, string> metadata = 5;
+}
+
+message Company {
+  string id = 1;
+  string name = 2;                    // "1st Company"
+  string fortress_id = 3;
+  CompanyType type = 4;
+  repeated Marine marines = 5;
+  RiskLimits risk_limits = 6;
+}
+
+enum CompanyType {
+  COMPANY_TYPE_UNSPECIFIED = 0;
+  COMPANY_TYPE_VETERAN = 1;           // Primary live accounts
+  COMPANY_TYPE_BATTLE = 2;            // Secondary / scaling accounts
+  COMPANY_TYPE_RESERVE = 3;           // Paper / staging
+  COMPANY_TYPE_SCOUT = 4;             // Experimental
+}
+
+message Marine {
+  string id = 1;
+  string name = 2;                    // "Alpha-1"
+  string company_id = 3;
+  string strategy_name = 4;           // "es-momentum"
+  string strategy_version = 5;        // "1.0.0"
+  string broker_account_id = 6;
+  MarineStatus status = 7;
+  ScheduleConfig schedule = 8;
+  map<string, string> parameters = 9;
+  ResourceLimits resources = 10;
+}
+
+enum MarineStatus {
+  MARINE_STATUS_UNSPECIFIED = 0;
+  MARINE_STATUS_DORMANT = 1;          // Sleeping between cycles
+  MARINE_STATUS_WAKING = 2;           // Container spinning up
+  MARINE_STATUS_ORIENTING = 3;        // Gathering data
+  MARINE_STATUS_DECIDING = 4;         // Running strategy logic
+  MARINE_STATUS_ACTING = 5;           // Submitting orders
+  MARINE_STATUS_REPORTING = 6;        // Logging results
+  MARINE_STATUS_SLEEPING = 7;         // Shutting down
+  MARINE_STATUS_FAILED = 8;           // Error state
+  MARINE_STATUS_DISABLED = 9;         // Manually disabled
+}
+
+// ─── Scheduling ─────────────────────────────────────────────
+
+message ScheduleConfig {
+  ScheduleType type = 1;
+  string interval = 2;                // "30s", "1m", "5m"
+  string cron = 3;                    // "*/5 * * * *"
+  string event_channel = 4;           // Vox channel for event-driven
+  TradingHours trading_hours = 5;
+}
+
+enum ScheduleType {
+  SCHEDULE_TYPE_UNSPECIFIED = 0;
+  SCHEDULE_TYPE_INTERVAL = 1;
+  SCHEDULE_TYPE_CRON = 2;
+  SCHEDULE_TYPE_EVENT = 3;
+  SCHEDULE_TYPE_MANUAL = 4;
+}
+
+message TradingHours {
+  string timezone = 1;                // "America/Chicago"
+  string market_open = 2;             // "08:30"
+  string market_close = 3;            // "15:00"
+  repeated string active_days = 4;    // ["MON","TUE","WED","THU","FRI"]
+}
+
+// ─── Risk ───────────────────────────────────────────────────
+
+message RiskLimits {
+  double max_position_size = 1;       // Max contracts/shares
+  double max_daily_loss = 2;          // Max daily loss in USD
+  double max_drawdown_pct = 3;        // Max drawdown percentage
+  double max_capital_at_risk = 4;     // Total capital at risk
+  bool kill_switch = 5;               // Emergency halt
+}
+
+message ResourceLimits {
+  int32 memory_mb = 1;               // Container memory limit
+  double cpu_cores = 2;              // Container CPU limit
+  int32 timeout_seconds = 3;         // Max execution time
+}
+
+// ─── Trading ────────────────────────────────────────────────
+
+message Signal {
+  string id = 1;
+  string marine_id = 2;
+  SignalType type = 3;
+  string symbol = 4;
+  double quantity = 5;
+  double price = 6;                   // 0 = market order
+  OrderType order_type = 7;
+  google.protobuf.Timestamp generated_at = 8;
+  map<string, string> metadata = 9;
+}
+
+enum SignalType {
+  SIGNAL_TYPE_UNSPECIFIED = 0;
+  SIGNAL_TYPE_BUY = 1;
+  SIGNAL_TYPE_SELL = 2;
+  SIGNAL_TYPE_SHORT = 3;
+  SIGNAL_TYPE_COVER = 4;
+}
+
+enum OrderType {
+  ORDER_TYPE_UNSPECIFIED = 0;
+  ORDER_TYPE_MARKET = 1;
+  ORDER_TYPE_LIMIT = 2;
+  ORDER_TYPE_STOP = 3;
+  ORDER_TYPE_STOP_LIMIT = 4;
+}
+
+message Order {
+  string id = 1;
+  string marine_id = 2;
+  string broker_account_id = 3;
+  string symbol = 4;
+  SignalType side = 5;
+  OrderType type = 6;
+  double quantity = 7;
+  double limit_price = 8;
+  double stop_price = 9;
+  OrderStatus status = 10;
+  double filled_quantity = 11;
+  double filled_price = 12;
+  google.protobuf.Timestamp created_at = 13;
+  google.protobuf.Timestamp updated_at = 14;
+}
+
+enum OrderStatus {
+  ORDER_STATUS_UNSPECIFIED = 0;
+  ORDER_STATUS_PENDING = 1;
+  ORDER_STATUS_SUBMITTED = 2;
+  ORDER_STATUS_FILLED = 3;
+  ORDER_STATUS_PARTIALLY_FILLED = 4;
+  ORDER_STATUS_CANCELLED = 5;
+  ORDER_STATUS_REJECTED = 6;
+}
+
+message Position {
+  string marine_id = 1;
+  string broker_account_id = 2;
+  string symbol = 3;
+  double quantity = 4;
+  double average_price = 5;
+  double unrealized_pnl = 6;
+  double realized_pnl = 7;
+  google.protobuf.Timestamp updated_at = 8;
+}
+
+// ─── Vox Event Envelope ─────────────────────────────────────
+
+message VoxEnvelope {
+  string id = 1;
+  string subject = 2;
+  google.protobuf.Timestamp timestamp = 3;
+  string source_service = 4;
+  string source_id = 5;
+  bytes payload = 6;
+  map<string, string> headers = 7;
+}
+
+// ─── Forge (Backtest) ───────────────────────────────────────
+
+message ForgeJob {
+  string id = 1;
+  ForgeJobType type = 2;
+  string strategy_name = 3;
+  string strategy_version = 4;
+  ForgeJobConfig config = 5;
+  ForgeJobStatus status = 6;
+  google.protobuf.Timestamp submitted_at = 7;
+  google.protobuf.Timestamp completed_at = 8;
+  string result_url = 9;
+}
+
+enum ForgeJobType {
+  FORGE_JOB_TYPE_UNSPECIFIED = 0;
+  FORGE_JOB_TYPE_BACKTEST = 1;
+  FORGE_JOB_TYPE_OPTIMIZATION = 2;
+  FORGE_JOB_TYPE_WALK_FORWARD = 3;
+  FORGE_JOB_TYPE_MONTE_CARLO = 4;
+}
+
+enum ForgeJobStatus {
+  FORGE_JOB_STATUS_UNSPECIFIED = 0;
+  FORGE_JOB_STATUS_QUEUED = 1;
+  FORGE_JOB_STATUS_RUNNING = 2;
+  FORGE_JOB_STATUS_COMPLETED = 3;
+  FORGE_JOB_STATUS_FAILED = 4;
+  FORGE_JOB_STATUS_CANCELLED = 5;
+}
+
+message ForgeJobConfig {
+  string symbol = 1;
+  string timeframe = 2;
+  google.protobuf.Timestamp start_date = 3;
+  google.protobuf.Timestamp end_date = 4;
+  double initial_capital = 5;
+  map<string, string> parameters = 6;
+  ParameterSweep sweep = 7;
+  int32 max_workers = 8;
+}
+
+message ParameterSweep {
+  repeated ParameterRange ranges = 1;
+}
+
+message ParameterRange {
+  string name = 1;
+  double min = 2;
+  double max = 3;
+  double step = 4;
+}

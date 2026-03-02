@@ -1,0 +1,37 @@
+# Apothecary — Prometheus Configuration
+# Scrapes all Astartes Primaris services for metrics.
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: "primarch"
+    static_configs:
+      - targets: ["primarch:8402"]
+
+  - job_name: "logis"
+    static_configs:
+      - targets: ["logis:8602"]
+
+  - job_name: "forge"
+    static_configs:
+      - targets: ["forge:8502"]
+
+  - job_name: "codex"
+    static_configs:
+      - targets: ["codex:8702"]
+
+  - job_name: "auspex"
+    static_configs:
+      - targets: ["auspex:8300"]
+
+  - job_name: "vox"
+    static_configs:
+      - targets: ["vox:8222"]
+
+  # Marines are ephemeral — Prometheus uses push gateway for them
+  - job_name: "pushgateway"
+    honor_labels: true
+    static_configs:
+      - targets: ["pushgateway:9091"]

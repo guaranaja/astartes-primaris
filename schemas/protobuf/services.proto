@@ -1,0 +1,225 @@
+syntax = "proto3";
+
+package imperium.services;
+
+import "imperium.proto";
+import "google/protobuf/empty.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/guaranaja/astartes-primaris/gen/go/services";
+
+// ─── Primarch Service ───────────────────────────────────────
+
+service PrimarchService {
+  // Fortress management
+  rpc ListFortresses(google.protobuf.Empty) returns (ListFortressesResponse);
+  rpc GetFortress(GetFortressRequest) returns (imperium.Fortress);
+  rpc CreateFortress(imperium.Fortress) returns (imperium.Fortress);
+
+  // Company management
+  rpc ListCompanies(ListCompaniesRequest) returns (ListCompaniesResponse);
+  rpc GetCompany(GetCompanyRequest) returns (imperium.Company);
+  rpc CreateCompany(imperium.Company) returns (imperium.Company);
+
+  // Marine management
+  rpc ListMarines(ListMarinesRequest) returns (ListMarinesResponse);
+  rpc GetMarine(GetMarineRequest) returns (imperium.Marine);
+  rpc CreateMarine(imperium.Marine) returns (imperium.Marine);
+  rpc UpdateMarine(imperium.Marine) returns (imperium.Marine);
+  rpc DeleteMarine(GetMarineRequest) returns (google.protobuf.Empty);
+
+  // Marine lifecycle
+  rpc WakeMarine(GetMarineRequest) returns (MarineLifecycleResponse);
+  rpc SleepMarine(GetMarineRequest) returns (MarineLifecycleResponse);
+  rpc GetMarineStatus(GetMarineRequest) returns (MarineStatusResponse);
+
+  // Kill switches
+  rpc ActivateKillSwitch(KillSwitchRequest) returns (google.protobuf.Empty);
+  rpc DeactivateKillSwitch(KillSwitchRequest) returns (google.protobuf.Empty);
+}
+
+message ListFortressesResponse {
+  repeated imperium.Fortress fortresses = 1;
+}
+
+message GetFortressRequest {
+  string id = 1;
+}
+
+message ListCompaniesRequest {
+  string fortress_id = 1;
+}
+
+message ListCompaniesResponse {
+  repeated imperium.Company companies = 1;
+}
+
+message GetCompanyRequest {
+  string id = 1;
+}
+
+message ListMarinesRequest {
+  string company_id = 1;
+  string fortress_id = 2;
+  imperium.MarineStatus status_filter = 3;
+}
+
+message ListMarinesResponse {
+  repeated imperium.Marine marines = 1;
+}
+
+message GetMarineRequest {
+  string id = 1;
+}
+
+message MarineLifecycleResponse {
+  string marine_id = 1;
+  imperium.MarineStatus status = 2;
+  string message = 3;
+}
+
+message MarineStatusResponse {
+  string marine_id = 1;
+  imperium.MarineStatus status = 2;
+  google.protobuf.Timestamp last_wake = 3;
+  google.protobuf.Timestamp last_sleep = 4;
+  int32 total_cycles_today = 5;
+  double daily_pnl = 6;
+}
+
+message KillSwitchRequest {
+  string scope = 1;  // "imperium", fortress_id, company_id, or marine_id
+}
+
+// ─── Logis Service ──────────────────────────────────────────
+
+service LogisService {
+  rpc SubmitOrder(imperium.Signal) returns (imperium.Order);
+  rpc CancelOrder(CancelOrderRequest) returns (imperium.Order);
+  rpc GetOrder(GetOrderRequest) returns (imperium.Order);
+  rpc ListOrders(ListOrdersRequest) returns (ListOrdersResponse);
+  rpc GetPosition(GetPositionRequest) returns (imperium.Position);
+  rpc ListPositions(ListPositionsRequest) returns (ListPositionsResponse);
+  rpc CloseAllPositions(CloseAllRequest) returns (CloseAllResponse);
+}
+
+message CancelOrderRequest {
+  string order_id = 1;
+}
+
+message GetOrderRequest {
+  string order_id = 1;
+}
+
+message ListOrdersRequest {
+  string marine_id = 1;
+  imperium.OrderStatus status_filter = 2;
+  google.protobuf.Timestamp since = 3;
+}
+
+message ListOrdersResponse {
+  repeated imperium.Order orders = 1;
+}
+
+message GetPositionRequest {
+  string marine_id = 1;
+  string symbol = 2;
+}
+
+message ListPositionsRequest {
+  string marine_id = 1;
+  string company_id = 2;
+  string fortress_id = 3;
+}
+
+message ListPositionsResponse {
+  repeated imperium.Position positions = 1;
+}
+
+message CloseAllRequest {
+  string scope = 1;  // marine_id, company_id, or fortress_id
+}
+
+message CloseAllResponse {
+  repeated imperium.Order close_orders = 1;
+}
+
+// ─── Forge Service ──────────────────────────────────────────
+
+service ForgeService {
+  rpc SubmitJob(imperium.ForgeJob) returns (imperium.ForgeJob);
+  rpc GetJob(GetJobRequest) returns (imperium.ForgeJob);
+  rpc ListJobs(ListJobsRequest) returns (ListJobsResponse);
+  rpc CancelJob(GetJobRequest) returns (imperium.ForgeJob);
+  rpc GetJobResults(GetJobRequest) returns (ForgeResults);
+}
+
+message GetJobRequest {
+  string job_id = 1;
+}
+
+message ListJobsRequest {
+  imperium.ForgeJobStatus status_filter = 1;
+  int32 limit = 2;
+}
+
+message ListJobsResponse {
+  repeated imperium.ForgeJob jobs = 1;
+}
+
+message ForgeResults {
+  string job_id = 1;
+  double total_return = 2;
+  double sharpe_ratio = 3;
+  double max_drawdown = 4;
+  double win_rate = 5;
+  int32 total_trades = 6;
+  double profit_factor = 7;
+  bytes equity_curve_json = 8;
+  bytes trades_json = 9;
+  map<string, double> custom_metrics = 10;
+}
+
+// ─── Codex Service ──────────────────────────────────────────
+
+service CodexService {
+  rpc GetConfig(GetConfigRequest) returns (ConfigResponse);
+  rpc SetConfig(SetConfigRequest) returns (ConfigResponse);
+  rpc DeleteConfig(GetConfigRequest) returns (google.protobuf.Empty);
+  rpc ListConfigs(ListConfigsRequest) returns (ListConfigsResponse);
+  rpc GetMarineConfig(GetMarineRequest) returns (MarineConfigResponse);
+}
+
+message GetConfigRequest {
+  string path = 1;  // e.g. "fortress/primus/risk"
+}
+
+message SetConfigRequest {
+  string path = 1;
+  bytes value = 2;
+  string format = 3;  // "yaml", "json"
+}
+
+message ConfigResponse {
+  string path = 1;
+  bytes value = 2;
+  string format = 3;
+  int64 version = 4;
+  google.protobuf.Timestamp updated_at = 5;
+}
+
+message ListConfigsRequest {
+  string prefix = 1;
+}
+
+message ListConfigsResponse {
+  repeated ConfigResponse configs = 1;
+}
+
+message MarineConfigResponse {
+  string marine_id = 1;
+  map<string, string> resolved_parameters = 2;
+  imperium.RiskLimits risk_limits = 3;
+  imperium.ScheduleConfig schedule = 4;
+  imperium.ResourceLimits resources = 5;
+}

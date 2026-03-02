@@ -1,0 +1,93 @@
+# Astartes Primaris — Local Development Stack
+# Brings up the full Imperium for local development and testing.
+
+services:
+  # ─── LIBRARIUM (Data Layer) ──────────────────────────────
+  librarium-timescale:
+    image: timescale/timescaledb:latest-pg16
+    container_name: librarium-timescale
+    environment:
+      POSTGRES_DB: librarium
+      POSTGRES_USER: librarium
+      POSTGRES_PASSWORD: ${LIBRARIUM_DB_PASSWORD:-dev_password}
+    ports:
+      - "5432:5432"
+    volumes:
+      - librarium-timescale-data:/var/lib/postgresql/data
+      - ./services/librarium/migrations:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U librarium"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  librarium-redis:
+    image: redis:7-alpine
+    container_name: librarium-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - librarium-redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─── VOX (Event Bus) ────────────────────────────────────
+  vox:
+    image: nats:2-alpine
+    container_name: vox
+    command: ["--jetstream", "--store_dir=/data"]
+    ports:
+      - "4222:4222"
+      - "8222:8222"
+    volumes:
+      - vox-data:/data
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8222/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─── APOTHECARY (Monitoring) ─────────────────────────────
+  apothecary-prometheus:
+    image: prom/prometheus:latest
+    container_name: apothecary-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./services/apothecary/prometheus.yml:/etc/prometheus/prometheus.yml
+      - apothecary-prometheus-data:/prometheus
+
+  apothecary-grafana:
+    image: grafana/grafana:latest
+    container_name: apothecary-grafana
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    ports:
+      - "3001:3000"
+    volumes:
+      - apothecary-grafana-data:/var/lib/grafana
+    depends_on:
+      - apothecary-prometheus
+
+  # ─── IRON HALO (Security) — Dev mode vault ──────────────
+  iron-halo:
+    image: hashicorp/vault:latest
+    container_name: iron-halo
+    environment:
+      VAULT_DEV_ROOT_TOKEN_ID: dev-root-token
+      VAULT_DEV_LISTEN_ADDRESS: "0.0.0.0:8200"
+    ports:
+      - "8200:8200"
+    cap_add:
+      - IPC_LOCK
+
+volumes:
+  librarium-timescale-data:
+  librarium-redis-data:
+  vox-data:
+  apothecary-prometheus-data:
+  apothecary-grafana-data:
