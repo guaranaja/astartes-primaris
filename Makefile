@@ -1,7 +1,7 @@
 # Astartes Primaris — Build & Operations
 # "The Codex Astartes does support this action."
 
-.PHONY: help up down logs proto build test
+.PHONY: help up down logs proto build test deploy
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
@@ -38,13 +38,16 @@ proto: ## Generate protobuf code (Go + Python)
 build-primarch: ## Build Primarch container
 	docker build -t astartes/primarch:latest services/primarch/
 
+build-aurum: ## Build Aurum dashboard container
+	docker build -t astartes/aurum:latest services/aurum/
+
 build-forge: ## Build Forge worker container
 	docker build -t astartes/forge-worker:latest services/forge/
 
 build-marine-base: ## Build Marine base image
 	docker build -t astartes/marine-base:latest services/tacticarium/
 
-build-all: build-primarch build-forge build-marine-base ## Build all containers
+build-all: build-primarch build-aurum build-forge build-marine-base ## Build all containers
 
 # ─── Database ───────────────────────────────────────────────
 
@@ -73,3 +76,26 @@ prometheus: ## Open Prometheus in browser
 
 vault: ## Open Vault UI in browser
 	@echo "Vault: http://localhost:8200 (token: dev-root-token)"
+
+# ─── Cloud Run Deployment ─────────────────────────────────
+
+deploy: ## Deploy all services to Cloud Run (requires GCP_PROJECT)
+	./infra/deploy.sh
+
+deploy-primarch: ## Deploy Primarch to Cloud Run
+	./infra/deploy.sh primarch
+
+deploy-aurum: ## Deploy Aurum to Cloud Run
+	./infra/deploy.sh aurum
+
+deploy-forge: ## Deploy Forge to Cloud Run
+	./infra/deploy.sh forge
+
+infra-init: ## Initialize Terraform for GCP
+	cd infra/terraform && terraform init
+
+infra-plan: ## Plan infrastructure changes (requires GCP_PROJECT)
+	cd infra/terraform && terraform plan -var="project_id=$(GCP_PROJECT)"
+
+infra-apply: ## Apply infrastructure changes (requires GCP_PROJECT)
+	cd infra/terraform && terraform apply -var="project_id=$(GCP_PROJECT)"

@@ -1,0 +1,69 @@
+// Astartes Primaris — GitHub Codespaces / VS Code Dev Container
+// "The Imperium develops in the cloud."
+{
+  "name": "Astartes Primaris",
+  "dockerComposeFile": "docker-compose.devcontainer.yml",
+  "service": "workspace",
+  "workspaceFolder": "/workspace",
+
+  "features": {
+    "ghcr.io/devcontainers/features/go:1": { "version": "1.24" },
+    "ghcr.io/devcontainers/features/python:1": { "version": "3.12" },
+    "ghcr.io/devcontainers/features/node:1": { "version": "20" },
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {},
+    "ghcr.io/devcontainers/features/kubectl-helm-minikube:1": { "helm": "latest", "kubectl": "latest", "minikube": "none" },
+    "ghcr.io/devcontainers/features/terraform:1": {},
+    "ghcr.io/devcontainers/features/github-cli:1": {}
+  },
+
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "terminal.integrated.defaultProfile.linux": "bash",
+        "go.toolsManagement.autoUpdate": true,
+        "python.defaultInterpreterPath": "/usr/local/bin/python",
+        "editor.formatOnSave": true,
+        "editor.minimap.enabled": false
+      },
+      "extensions": [
+        "golang.go",
+        "ms-python.python",
+        "ms-azuretools.vscode-docker",
+        "ms-kubernetes-tools.vscode-kubernetes-tools",
+        "cweijan.vscode-postgresql-client2",
+        "rangav.vscode-thunder-client",
+        "redhat.vscode-yaml",
+        "hashicorp.terraform",
+        "humao.rest-client",
+        "eamodio.gitlens",
+        "github.copilot",
+        "anthropics.claude-code"
+      ]
+    }
+  },
+
+  "forwardPorts": [
+    3000,  // Aurum dashboard
+    8400,  // Primarch gRPC
+    8401,  // Primarch HTTP API
+    8402,  // Primarch metrics
+    5432,  // TimescaleDB
+    6379,  // Redis
+    4222,  // NATS
+    9090,  // Prometheus
+    3001,  // Grafana
+    8200   // Vault
+  ],
+
+  "postCreateCommand": "bash .devcontainer/post-create.sh",
+
+  "remoteEnv": {
+    "PRIMARCH_URL": "http://localhost:8401",
+    "AURUM_PORT": "3000",
+    "DATABASE_URL": "postgres://librarium:dev_password@librarium-timescale:5432/librarium?sslmode=disable",
+    "NATS_URL": "nats://vox:4222",
+    "VAULT_ADDR": "http://iron-halo:8200",
+    "VAULT_TOKEN": "dev-root-token",
+    "ENVIRONMENT": "dev"
+  }
+}

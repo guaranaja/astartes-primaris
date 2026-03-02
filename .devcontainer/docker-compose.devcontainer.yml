@@ -1,0 +1,96 @@
+# Astartes Primaris — Dev Container Compose
+# Extends the main docker-compose.yml with a workspace container for Codespaces.
+
+services:
+  workspace:
+    image: mcr.microsoft.com/devcontainers/base:ubuntu
+    volumes:
+      - ..:/workspace:cached
+    command: sleep infinity
+    depends_on:
+      librarium-timescale:
+        condition: service_healthy
+      librarium-redis:
+        condition: service_healthy
+      vox:
+        condition: service_healthy
+    network_mode: host
+
+  # ─── Data Layer ──────────────────────────────────────────
+  librarium-timescale:
+    image: timescale/timescaledb:latest-pg16
+    environment:
+      POSTGRES_DB: librarium
+      POSTGRES_USER: librarium
+      POSTGRES_PASSWORD: dev_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - librarium-data:/var/lib/postgresql/data
+      - ../services/librarium/migrations:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U librarium"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  librarium-redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─── Event Bus ───────────────────────────────────────────
+  vox:
+    image: nats:2-alpine
+    command: ["--jetstream", "--store_dir=/data"]
+    ports:
+      - "4222:4222"
+      - "8222:8222"
+    volumes:
+      - vox-data:/data
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8222/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─── Monitoring ──────────────────────────────────────────
+  apothecary-prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ../services/apothecary/prometheus.yml:/etc/prometheus/prometheus.yml
+
+  apothecary-grafana:
+    image: grafana/grafana:latest
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    ports:
+      - "3001:3000"
+    depends_on:
+      - apothecary-prometheus
+
+  # ─── Security ────────────────────────────────────────────
+  iron-halo:
+    image: hashicorp/vault:latest
+    environment:
+      VAULT_DEV_ROOT_TOKEN_ID: dev-root-token
+      VAULT_DEV_LISTEN_ADDRESS: "0.0.0.0:8200"
+    ports:
+      - "8200:8200"
+    cap_add:
+      - IPC_LOCK
+
+volumes:
+  librarium-data:
+  redis-data:
+  vox-data:
