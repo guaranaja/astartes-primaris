@@ -10,7 +10,8 @@ import (
 type Config struct {
 	Port     int
 	LogLevel string
-	Seed     bool // Seed Fortress Primus on startup
+	Seed     bool   // Seed Fortress Primus on startup
+	DBUrl    string // PostgreSQL connection string (empty = in-memory store)
 }
 
 // Load reads configuration from environment variables with sensible defaults.
@@ -19,7 +20,13 @@ func Load() *Config {
 		Port:     envInt("PRIMARCH_PORT", 8401),
 		LogLevel: envStr("PRIMARCH_LOG_LEVEL", "info"),
 		Seed:     envBool("PRIMARCH_SEED", true),
+		DBUrl:    envStr("PRIMARCH_DB_URL", ""),
 	}
+}
+
+// UseDB returns true if a database URL is configured.
+func (c *Config) UseDB() bool {
+	return c.DBUrl != ""
 }
 
 func envStr(key, fallback string) string {

@@ -18,7 +18,7 @@ type EventSink func(event domain.SystemEvent)
 
 // Scheduler orchestrates marine wake/sleep cycles on their configured schedules.
 type Scheduler struct {
-	store     *store.Store
+	store     store.DataStore
 	runner    *runner.Manager
 	eventSink EventSink
 	logger    *slog.Logger
@@ -30,7 +30,7 @@ type Scheduler struct {
 }
 
 // New creates a scheduler.
-func New(s *store.Store, r *runner.Manager, sink EventSink, logger *slog.Logger) *Scheduler {
+func New(s store.DataStore, r *runner.Manager, sink EventSink, logger *slog.Logger) *Scheduler {
 	return &Scheduler{
 		store:     s,
 		runner:    r,

@@ -59,8 +59,22 @@ func main() {
     ║       Astartes Primaris v0.1.0            ║
     ╚═══════════════════════════════════════════╝`)
 
-	// Initialize components
-	dataStore := store.New()
+	// Initialize store (PostgreSQL or in-memory)
+	var dataStore store.DataStore
+	if cfg.UseDB() {
+		pg, err := store.NewPGStore(cfg.DBUrl, logger)
+		if err != nil {
+			logger.Error("failed to connect to database", "error", err)
+			os.Exit(1)
+		}
+		defer pg.Close()
+		dataStore = pg
+		fmt.Println("  Storage: PostgreSQL (persistent)")
+	} else {
+		dataStore = store.New()
+		fmt.Println("  Storage: In-memory (ephemeral)")
+	}
+
 	runnerMgr := runner.NewManager(logger)
 
 	// Create WebSocket hub first (shared by API server and scheduler events)

@@ -16,7 +16,7 @@ import (
 
 // Server is the HTTP API server for Primarch.
 type Server struct {
-	store     *store.Store
+	store     store.DataStore
 	scheduler *scheduler.Scheduler
 	logger    *slog.Logger
 	hub       *WSHub
@@ -24,12 +24,12 @@ type Server struct {
 }
 
 // NewServer creates the API server with a new WebSocket hub.
-func NewServer(s *store.Store, sched *scheduler.Scheduler, logger *slog.Logger) *Server {
+func NewServer(s store.DataStore, sched *scheduler.Scheduler, logger *slog.Logger) *Server {
 	return NewServerWithHub(s, sched, logger, NewWSHub())
 }
 
 // NewServerWithHub creates the API server with an externally provided WebSocket hub.
-func NewServerWithHub(s *store.Store, sched *scheduler.Scheduler, logger *slog.Logger, hub *WSHub) *Server {
+func NewServerWithHub(s store.DataStore, sched *scheduler.Scheduler, logger *slog.Logger, hub *WSHub) *Server {
 	srv := &Server{
 		store:     s,
 		scheduler: sched,
@@ -464,7 +464,7 @@ func (w *statusWriter) WriteHeader(code int) {
 
 // SeedFuturesFortress creates the initial Fortress Primus hierarchy for futures.
 // This makes it easy to register your existing astartes-futures strategies.
-func SeedFuturesFortress(s *store.Store) {
+func SeedFuturesFortress(s store.DataStore) {
 	_ = s.CreateFortress(&domain.Fortress{
 		ID:         "fortress-primus",
 		Name:       "Fortress Primus",
