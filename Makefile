@@ -115,36 +115,35 @@ infra-apply: ## Apply infrastructure changes (requires GCP_PROJECT)
 	cd infra/terraform && terraform apply -var="project_id=$(GCP_PROJECT)"
 
 # ─── Cloud Workstations ──────────────────────────────────────
+# Run 'make workstation-setup' for guided first-time setup.
+# After that, use start/stop/ssh to manage your workstation.
 
 GCP_REGION ?= us-central1
 
-workstation-push: build-workstation ## Build and push workstation image to Artifact Registry (requires GCP_PROJECT)
+workstation-setup: ## First-time setup — creates everything from scratch (interactive)
+	bash infra/setup-workstation.sh
+
+workstation-push: build-workstation ## Rebuild and push workstation image (requires GCP_PROJECT)
+	@gcloud auth configure-docker $(GCP_REGION)-docker.pkg.dev --quiet 2>/dev/null
 	@docker tag astartes/workstation:latest \
 		$(GCP_REGION)-docker.pkg.dev/$(GCP_PROJECT)/astartes-primaris/workstation:latest
 	docker push $(GCP_REGION)-docker.pkg.dev/$(GCP_PROJECT)/astartes-primaris/workstation:latest
 
-workstation-create: ## Create a Cloud Workstation (requires GCP_PROJECT)
-	gcloud workstations create astartes-dev \
-		--cluster=astartes-dev-dev \
-		--config=astartes-config-dev \
-		--region=$(GCP_REGION) \
-		--project=$(GCP_PROJECT)
-
-workstation-start: ## Start the Cloud Workstation
+workstation-start: ## Start your Cloud Workstation (requires GCP_PROJECT)
 	gcloud workstations start astartes-dev \
 		--cluster=astartes-dev-dev \
 		--config=astartes-config-dev \
 		--region=$(GCP_REGION) \
 		--project=$(GCP_PROJECT)
 
-workstation-stop: ## Stop the Cloud Workstation
+workstation-stop: ## Stop your Cloud Workstation (requires GCP_PROJECT)
 	gcloud workstations stop astartes-dev \
 		--cluster=astartes-dev-dev \
 		--config=astartes-config-dev \
 		--region=$(GCP_REGION) \
 		--project=$(GCP_PROJECT)
 
-workstation-ssh: ## SSH into the Cloud Workstation
+workstation-ssh: ## SSH into your Cloud Workstation (requires GCP_PROJECT)
 	gcloud workstations ssh astartes-dev \
 		--cluster=astartes-dev-dev \
 		--config=astartes-config-dev \
