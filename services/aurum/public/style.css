@@ -1,27 +1,30 @@
 /* ═══════════════════════════════════════════════════════════
    AURUM — Astartes Primaris Dashboard
-   Dark theme, high density, military-precision aesthetic
+   Ultramarine theme: deep cobalt blue, gold trim, high density
    ═══════════════════════════════════════════════════════════ */
 
 :root {
-  /* Core palette */
-  --bg-0: #0a0a0f;
-  --bg-1: #12121a;
-  --bg-2: #1a1a26;
-  --bg-3: #222233;
-  --bg-card: #14141e;
-  --border: #2a2a3a;
-  --border-light: #3a3a4a;
+  /* Core palette — Ultramarine */
+  --bg-0: #060a14;
+  --bg-1: #0c1222;
+  --bg-2: #131d30;
+  --bg-3: #1c2a42;
+  --bg-card: #0e1628;
+  --border: #1e3050;
+  --border-light: #2a4060;
 
   /* Text */
-  --text-0: #e8e8f0;
-  --text-1: #b0b0c0;
-  --text-2: #707088;
-  --text-3: #505068;
+  --text-0: #e4e8f4;
+  --text-1: #a8b4cc;
+  --text-2: #607090;
+  --text-3: #405070;
 
   /* Accents */
-  --gold: #d4a843;
-  --gold-dim: #8a7030;
+  --gold: #c9a84c;
+  --gold-dim: #7a6430;
+  --ultra-blue: #3b82f6;
+  --ultra-blue-bright: #60a5fa;
+  --ultra-blue-dim: #1d4ed8;
   --green: #2dd4a0;
   --green-dim: #1a8a60;
   --red: #ef4444;
@@ -32,9 +35,9 @@
   --purple: #a78bfa;
 
   /* Signal warmup gradient */
-  --warmup-cold: #1a1a40;
-  --warmup-cool: #1a3060;
-  --warmup-warm: #3a4020;
+  --warmup-cold: #101a3a;
+  --warmup-cool: #142a55;
+  --warmup-warm: #2a3520;
   --warmup-hot: #4a2a10;
   --warmup-fire: #6a1a1a;
 
@@ -94,7 +97,7 @@ html, body {
   font-weight: 700;
   font-size: 14px;
   letter-spacing: 2px;
-  color: var(--gold);
+  color: var(--ultra-blue-bright);
 }
 .logo-sub {
   font-size: 10px;
@@ -124,8 +127,9 @@ html, body {
 }
 .nav-btn:hover { background: var(--bg-2); color: var(--text-1); }
 .nav-btn.active {
-  background: var(--bg-3);
+  background: rgba(59, 130, 246, 0.12);
   color: var(--text-0);
+  border: 1px solid rgba(59, 130, 246, 0.2);
 }
 .nav-key {
   display: inline-flex;
@@ -141,8 +145,8 @@ html, body {
   color: var(--text-3);
 }
 .nav-btn.active .nav-key {
-  border-color: var(--gold-dim);
-  color: var(--gold);
+  border-color: var(--ultra-blue-dim);
+  color: var(--ultra-blue-bright);
 }
 
 .connection-status {
@@ -307,16 +311,16 @@ html, body {
 .fortress-card {
   background: var(--bg-2);
   border: 1px solid var(--border);
-  border-top: 2px solid var(--gold-dim);
+  border-top: 2px solid var(--ultra-blue-dim);
   border-radius: var(--radius);
   padding: 14px;
   cursor: pointer;
   transition: all 0.2s;
 }
 .fortress-card:hover {
-  border-color: var(--gold-dim);
-  border-top-color: var(--gold);
-  box-shadow: 0 4px 20px rgba(212, 168, 67, 0.08);
+  border-color: var(--ultra-blue-dim);
+  border-top-color: var(--ultra-blue);
+  box-shadow: 0 4px 20px rgba(59, 130, 246, 0.12);
   transform: translateY(-1px);
 }
 
@@ -436,7 +440,7 @@ html, body {
   transition: all 0.2s;
 }
 .marine-card:hover {
-  border-color: var(--blue-dim);
+  border-color: var(--ultra-blue-dim);
   background: var(--bg-3);
   transform: translateX(2px);
 }
@@ -579,7 +583,7 @@ html, body {
   outline: none;
   transition: border-color 0.15s;
 }
-.input:focus { border-color: var(--gold); }
+.input:focus { border-color: var(--ultra-blue); }
 
 select.input { cursor: pointer; }
 select.input option { background: var(--bg-1); }
@@ -709,20 +713,20 @@ select.input option { background: var(--bg-1); }
   transition: all 0.15s;
 }
 .btn:hover { background: var(--border); color: var(--text-0); }
-.btn.active { background: var(--bg-3); color: var(--gold); border-color: var(--gold-dim); }
+.btn.active { background: var(--bg-3); color: var(--ultra-blue-bright); border-color: var(--ultra-blue-dim); }
 
 .btn-sm { padding: 4px 10px; font-size: 11px; }
 .btn-lg { padding: 10px 20px; font-size: 13px; }
 
 .btn-primary {
-  background: var(--gold-dim);
-  border-color: var(--gold);
-  color: var(--gold);
+  background: var(--ultra-blue-dim);
+  border-color: var(--ultra-blue);
+  color: var(--ultra-blue-bright);
   font-weight: 600;
 }
 .btn-primary:hover {
-  background: var(--gold);
-  color: var(--bg-0);
+  background: var(--ultra-blue);
+  color: #fff;
 }
 
 .btn-danger {
@@ -841,8 +845,8 @@ select.input option { background: var(--bg-1); }
   background: rgba(45, 212, 160, 0.05);
 }
 .phase-card.active {
-  border-color: var(--gold);
-  box-shadow: 0 0 12px rgba(212, 168, 67, 0.15);
+  border-color: var(--ultra-blue);
+  box-shadow: 0 0 12px rgba(59, 130, 246, 0.2);
 }
 .phase-card.locked {
   opacity: 0.4;
@@ -854,7 +858,7 @@ select.input option { background: var(--bg-1); }
   color: var(--text-3);
   margin-bottom: 4px;
 }
-.phase-card.active .phase-rank { color: var(--gold); }
+.phase-card.active .phase-rank { color: var(--ultra-blue-bright); }
 .phase-card.completed .phase-rank { color: var(--green); }
 .phase-name {
   font-weight: 600;
@@ -1035,7 +1039,7 @@ select.input option { background: var(--bg-1); }
   border-left: 3px solid var(--text-3);
 }
 .goal-card.active {
-  border-left: 3px solid var(--gold);
+  border-left: 3px solid var(--ultra-blue);
 }
 
 .goal-header {
@@ -1204,7 +1208,7 @@ select.input option { background: var(--bg-1); }
 /* ─── Loading Skeleton ───────────────────────────────────── */
 
 .skeleton {
-  background: linear-gradient(90deg, var(--bg-2) 25%, var(--bg-3) 50%, var(--bg-2) 75%);
+  background: linear-gradient(90deg, var(--bg-2) 25%, rgba(59, 130, 246, 0.08) 50%, var(--bg-2) 75%);
   background-size: 200% 100%;
   animation: shimmer 1.5s infinite;
   border-radius: var(--radius);
@@ -1221,7 +1225,7 @@ select.input option { background: var(--bg-1); }
   align-items: center;
   gap: 20px;
   padding: 12px 20px;
-  background: linear-gradient(135deg, rgba(212, 168, 67, 0.06), rgba(96, 165, 250, 0.04));
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.08), rgba(29, 78, 216, 0.04));
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   margin-bottom: var(--gap);
