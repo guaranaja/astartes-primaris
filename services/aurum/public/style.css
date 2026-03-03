@@ -67,7 +67,7 @@ html, body {
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: var(--border-light); }
+::-webkit-scrollbar-thumb:hover { background: var(--gold-dim); }
 
 /* ─── Top Bar ────────────────────────────────────────────── */
 
@@ -78,7 +78,8 @@ html, body {
   height: 44px;
   padding: 0 16px;
   background: var(--bg-1);
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--gold-dim);
+  box-shadow: 0 1px 0 rgba(201, 168, 76, 0.15);
   user-select: none;
   z-index: 100;
 }
@@ -97,7 +98,8 @@ html, body {
   font-weight: 700;
   font-size: 14px;
   letter-spacing: 2px;
-  color: var(--ultra-blue-bright);
+  color: var(--gold);
+  text-shadow: 0 0 12px rgba(201, 168, 76, 0.3);
 }
 .logo-sub {
   font-size: 10px;
@@ -192,6 +194,21 @@ html, body {
   box-shadow: 0 0 20px rgba(239, 68, 68, 0.3);
 }
 
+/* ─── Gold Filigree Trim ─────────────────────────────────── */
+
+#topbar::after {
+  content: '';
+  position: absolute;
+  bottom: -2px;
+  left: 10%;
+  right: 10%;
+  height: 1px;
+  background: linear-gradient(to right, transparent, var(--gold), transparent);
+  opacity: 0.4;
+}
+
+#topbar { position: relative; }
+
 /* ─── Main Content ───────────────────────────────────────── */
 
 #content {
@@ -215,17 +232,18 @@ html, body {
 .card {
   background: var(--bg-card);
   border: 1px solid var(--border);
+  border-top: 1px solid var(--gold-dim);
   border-radius: var(--radius-lg);
   padding: 16px 20px;
   transition: border-color 0.2s;
 }
-.card:hover { border-color: var(--border-light); }
+.card:hover { border-color: var(--border-light); border-top-color: var(--gold); }
 
 .card-label {
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 1px;
-  color: var(--text-2);
+  color: var(--gold);
   margin-bottom: 4px;
 }
 
@@ -260,6 +278,17 @@ html, body {
   border-radius: var(--radius-lg);
   padding: 16px;
   margin-bottom: var(--gap);
+  position: relative;
+  overflow: hidden;
+}
+.section::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 5%;
+  right: 5%;
+  height: 1px;
+  background: linear-gradient(to right, transparent, var(--gold-dim), transparent);
 }
 
 .section-header {
@@ -268,7 +297,11 @@ html, body {
   justify-content: space-between;
   margin-bottom: 12px;
   padding-bottom: 10px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--gold-dim);
+  background: linear-gradient(to right, rgba(201, 168, 76, 0.04), transparent);
+  margin: -16px -16px 12px -16px;
+  padding: 12px 16px 10px 16px;
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
 }
 
 .section-header h2 {
@@ -276,7 +309,7 @@ html, body {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 1px;
-  color: var(--text-1);
+  color: var(--gold);
 }
 
 .badge {
@@ -316,11 +349,12 @@ html, body {
   padding: 14px;
   cursor: pointer;
   transition: all 0.2s;
+  box-shadow: inset 0 0 0 1px rgba(201, 168, 76, 0.06);
 }
 .fortress-card:hover {
-  border-color: var(--ultra-blue-dim);
+  border-color: var(--gold-dim);
   border-top-color: var(--ultra-blue);
-  box-shadow: 0 4px 20px rgba(59, 130, 246, 0.12);
+  box-shadow: 0 4px 20px rgba(59, 130, 246, 0.12), inset 0 0 0 1px rgba(201, 168, 76, 0.12);
   transform: translateY(-1px);
 }
 
@@ -500,7 +534,7 @@ html, body {
   font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 1px;
-  color: var(--text-2);
+  color: var(--gold);
   margin-bottom: 8px;
 }
 
@@ -645,9 +679,10 @@ select.input option { background: var(--bg-1); }
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 1px;
-  background: var(--border);
+  background: var(--gold-dim);
   border-radius: var(--radius);
   overflow: hidden;
+  box-shadow: 0 0 0 1px var(--gold-dim);
 }
 
 .stat {
@@ -660,7 +695,7 @@ select.input option { background: var(--bg-1); }
   font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  color: var(--text-3);
+  color: var(--gold);
   margin-bottom: 2px;
 }
 .stat-value {
@@ -685,8 +720,8 @@ select.input option { background: var(--bg-1); }
   font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 1px;
-  color: var(--text-3);
-  border-bottom: 1px solid var(--border);
+  color: var(--gold);
+  border-bottom: 1px solid var(--gold-dim);
   font-weight: 600;
 }
 .data-table td {
@@ -750,14 +785,14 @@ select.input option { background: var(--bg-1); }
 .modal-content {
   position: relative;
   background: var(--bg-1);
-  border: 1px solid var(--border);
+  border: 1px solid var(--gold-dim);
   border-radius: var(--radius-lg);
   padding: 24px;
   min-width: 400px;
   max-width: 600px;
   max-height: 80vh;
   overflow-y: auto;
-  box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+  box-shadow: 0 20px 60px rgba(0,0,0,0.5), 0 0 0 1px rgba(201, 168, 76, 0.1);
 }
 
 /* ─── Command Palette ────────────────────────────────────── */
@@ -770,9 +805,9 @@ select.input option { background: var(--bg-1); }
   width: 500px;
   z-index: 2000;
   background: var(--bg-1);
-  border: 1px solid var(--border-light);
+  border: 1px solid var(--gold-dim);
   border-radius: var(--radius-lg);
-  box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+  box-shadow: 0 20px 60px rgba(0,0,0,0.6), 0 0 20px rgba(201, 168, 76, 0.08);
   overflow: hidden;
 }
 .command-palette.hidden { display: none; }
@@ -835,6 +870,7 @@ select.input option { background: var(--bg-1); }
   padding: 12px;
   background: var(--bg-2);
   border: 1px solid var(--border);
+  border-bottom: 1px solid var(--gold-dim);
   border-radius: var(--radius);
   text-align: center;
   transition: all 0.2s;
@@ -1149,7 +1185,7 @@ select.input option { background: var(--bg-1); }
   font-size: 9px;
   text-transform: uppercase;
   letter-spacing: 1px;
-  color: var(--text-3);
+  color: var(--gold);
   display: block;
   margin-bottom: 4px;
 }
@@ -1226,9 +1262,10 @@ select.input option { background: var(--bg-1); }
   gap: 20px;
   padding: 12px 20px;
   background: linear-gradient(135deg, rgba(59, 130, 246, 0.08), rgba(29, 78, 216, 0.04));
-  border: 1px solid var(--border);
+  border: 1px solid var(--gold-dim);
   border-radius: var(--radius-lg);
   margin-bottom: var(--gap);
+  box-shadow: inset 0 1px 0 rgba(201, 168, 76, 0.15), inset 0 -1px 0 rgba(201, 168, 76, 0.1);
 }
 .summary-banner .summary-item {
   display: flex;
@@ -1250,7 +1287,7 @@ select.input option { background: var(--bg-1); }
 .summary-banner .summary-divider {
   width: 1px;
   height: 28px;
-  background: var(--border);
+  background: linear-gradient(to bottom, transparent, var(--gold-dim), transparent);
 }
 
 /* ─── Marine Schedule Info ──────────────────────────────── */
