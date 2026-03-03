@@ -112,7 +112,7 @@ CREATE TABLE positions (
 -- ─── STRATEGY SIGNALS ──────────────────────────────────────
 
 CREATE TABLE signals (
-    id          TEXT PRIMARY KEY,
+    id          TEXT NOT NULL,
     marine_id   TEXT NOT NULL REFERENCES marines(id),
     type        TEXT NOT NULL,          -- 'buy','sell','short','cover'
     symbol      TEXT NOT NULL,
@@ -120,7 +120,8 @@ CREATE TABLE signals (
     price       DOUBLE PRECISION,
     order_type  TEXT,
     metadata    JSONB DEFAULT '{}',
-    created_at  TIMESTAMPTZ DEFAULT now()
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (id, created_at)
 );
 
 SELECT create_hypertable('signals', 'created_at');
@@ -128,7 +129,7 @@ SELECT create_hypertable('signals', 'created_at');
 -- ─── MARINE EXECUTION LOG ──────────────────────────────────
 
 CREATE TABLE marine_cycles (
-    id           TEXT PRIMARY KEY,
+    id           TEXT NOT NULL,
     marine_id    TEXT NOT NULL REFERENCES marines(id),
     wake_at      TIMESTAMPTZ NOT NULL,
     sleep_at     TIMESTAMPTZ,
@@ -137,7 +138,8 @@ CREATE TABLE marine_cycles (
     orders_submitted  INTEGER DEFAULT 0,
     duration_ms       INTEGER,
     error_message     TEXT,
-    metadata          JSONB DEFAULT '{}'
+    metadata          JSONB DEFAULT '{}',
+    PRIMARY KEY (id, wake_at)
 );
 
 SELECT create_hypertable('marine_cycles', 'wake_at');

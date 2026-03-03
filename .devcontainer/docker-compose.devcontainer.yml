@@ -14,7 +14,6 @@ services:
         condition: service_healthy
       vox:
         condition: service_healthy
-    network_mode: host
 
   # ─── Data Layer ──────────────────────────────────────────
   librarium-timescale:
@@ -49,7 +48,7 @@ services:
   # ─── Event Bus ───────────────────────────────────────────
   vox:
     image: nats:2-alpine
-    command: ["--jetstream", "--store_dir=/data"]
+    command: ["--jetstream", "--store_dir=/data", "-m", "8222"]
     ports:
       - "4222:4222"
       - "8222:8222"
