@@ -1,4 +1,5 @@
-FROM python:3.12-slim AS base
+ARG PYTHON_BASE_IMAGE=astartes/python-base:3.12
+FROM ${PYTHON_BASE_IMAGE} AS base
 
 WORKDIR /app
 
@@ -13,4 +14,4 @@ EXPOSE 9000
 
 # Marine entrypoint handles the full lifecycle:
 # wake → orient → decide → act → report → sleep
-ENTRYPOINT ["python", "-m", "marine_sdk.runner"]
+ENTRYPOINT ["python3", "-m", "marine_sdk.runner"]

@@ -1,7 +1,7 @@
 # Astartes Primaris — Build & Operations
 # "The Codex Astartes does support this action."
 
-.PHONY: help up down logs proto build test deploy
+.PHONY: help up down logs proto build test deploy build-python-base
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
@@ -35,19 +35,30 @@ proto: ## Generate protobuf code (Go + Python)
 
 # ─── Build ──────────────────────────────────────────────────
 
+PYTHON_VERSION ?= 3.12.8
+
+build-python-base: ## Build shared Python base image with stdlib extensions
+	docker build \
+		--build-arg PYTHON_VERSION=$(PYTHON_VERSION) \
+		-t astartes/python-base:3.12 \
+		infra/docker/python-base/
+
 build-primarch: ## Build Primarch container
 	docker build -t astartes/primarch:latest services/primarch/
 
 build-aurum: ## Build Aurum dashboard container
 	docker build -t astartes/aurum:latest services/aurum/
 
-build-forge: ## Build Forge worker container
+build-forge: build-python-base ## Build Forge worker container
 	docker build -t astartes/forge-worker:latest services/forge/
 
-build-marine-base: ## Build Marine base image
+build-auspex: build-python-base ## Build Auspex data collector container
+	docker build -t astartes/auspex:latest services/auspex/
+
+build-marine-base: build-python-base ## Build Marine base image
 	docker build -t astartes/marine-base:latest services/tacticarium/
 
-build-all: build-primarch build-aurum build-forge build-marine-base ## Build all containers
+build-all: build-python-base build-primarch build-aurum build-forge build-auspex build-marine-base ## Build all containers
 
 # ─── Database ───────────────────────────────────────────────
 

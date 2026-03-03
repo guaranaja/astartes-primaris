@@ -1,4 +1,5 @@
-FROM python:3.12-slim
+ARG PYTHON_BASE_IMAGE=astartes/python-base:3.12
+FROM ${PYTHON_BASE_IMAGE}
 
 WORKDIR /app
 
@@ -13,4 +14,4 @@ COPY . .
 
 EXPOSE 8300
 
-ENTRYPOINT ["python", "-m", "auspex"]
+ENTRYPOINT ["python3", "-m", "auspex"]

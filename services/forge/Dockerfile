@@ -1,7 +1,8 @@
 # Forge — Backtest engine and strategy optimizer.
 # Runs on Cloud Run Jobs (batch workloads, not always-on).
 
-FROM python:3.12-slim
+ARG PYTHON_BASE_IMAGE=astartes/python-base:3.12
+FROM ${PYTHON_BASE_IMAGE}
 
 WORKDIR /app
 
@@ -17,4 +18,4 @@ COPY . .
 # The API surface (:8500) is for local dev / inter-service calls.
 EXPOSE 8500
 
-ENTRYPOINT ["python", "-m", "forge"]
+ENTRYPOINT ["python3", "-m", "forge"]
