@@ -34,6 +34,38 @@ services:
       timeout: 5s
       retries: 5
 
+  # ─── AUSPEX (Market Data Collection) ────────────────────
+  auspex:
+    build: ./services/auspex
+    container_name: auspex
+    environment:
+      IBKR_HOST: ${IBKR_HOST:-host.docker.internal}
+      IBKR_PORT: ${IBKR_PORT:-4002}
+      IBKR_CLIENT_ID: ${IBKR_CLIENT_ID:-10}
+      IBKR_READONLY: "true"
+      AUSPEX_SYMBOLS: ${AUSPEX_SYMBOLS:-ES:CME:FUT:USD,NQ:CME:FUT:USD,MES:CME:FUT:USD,MNQ:CME:FUT:USD}
+      AUSPEX_BAR_TIMEFRAMES: "1 min,5 mins,15 mins,1 hour,1 day"
+      AUSPEX_BACKFILL_DAYS: ${AUSPEX_BACKFILL_DAYS:-5}
+      AUSPEX_STREAM_TICKS: "true"
+      AUSPEX_STREAM_BARS: "true"
+      LIBRARIUM_HOST: librarium-timescale
+      LIBRARIUM_PORT: "5432"
+      LIBRARIUM_DB: librarium
+      LIBRARIUM_USER: librarium
+      LIBRARIUM_PASSWORD: ${LIBRARIUM_DB_PASSWORD:-dev_password}
+      VOX_URL: nats://vox:4222
+      AUSPEX_LOG_LEVEL: ${AUSPEX_LOG_LEVEL:-info}
+    ports:
+      - "8300:8300"
+    depends_on:
+      librarium-timescale:
+        condition: service_healthy
+      vox:
+        condition: service_healthy
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
   # ─── VOX (Event Bus) ────────────────────────────────────
   vox:
     image: nats:2-alpine

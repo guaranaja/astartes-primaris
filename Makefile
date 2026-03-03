@@ -47,13 +47,26 @@ build-forge: ## Build Forge worker container
 build-marine-base: ## Build Marine base image
 	docker build -t astartes/marine-base:latest services/tacticarium/
 
-build-all: build-primarch build-aurum build-forge build-marine-base ## Build all containers
+build-auspex: ## Build Auspex market data collector
+	docker build -t astartes/auspex:latest services/auspex/
+
+build-all: build-primarch build-aurum build-auspex build-forge build-marine-base ## Build all containers
 
 # ─── Database ───────────────────────────────────────────────
+
+auspex-logs: ## Tail Auspex logs
+	docker compose logs -f auspex
+
+auspex-health: ## Check Auspex health
+	@curl -s http://localhost:8300/health | python3 -m json.tool
+
+auspex-metrics: ## Show Auspex metrics
+	@curl -s http://localhost:8300/metrics | python3 -m json.tool
 
 db-migrate: ## Run Librarium migrations
 	@echo "Running migrations..."
 	docker compose exec librarium-timescale psql -U librarium -d librarium -f /docker-entrypoint-initdb.d/001_initial_schema.sql
+	docker compose exec librarium-timescale psql -U librarium -d librarium -f /docker-entrypoint-initdb.d/002_council_schema.sql
 
 db-shell: ## Open psql shell to Librarium
 	docker compose exec librarium-timescale psql -U librarium -d librarium
