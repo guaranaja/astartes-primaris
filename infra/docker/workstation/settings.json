@@ -1,0 +1,7 @@
+{
+  "terminal.integrated.defaultProfile.linux": "bash",
+  "go.toolsManagement.autoUpdate": true,
+  "python.defaultInterpreterPath": "/usr/local/bin/python3",
+  "editor.formatOnSave": true,
+  "editor.minimap.enabled": false
+}

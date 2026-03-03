@@ -58,6 +58,9 @@ build-auspex: build-python-base ## Build Auspex data collector container
 build-marine-base: build-python-base ## Build Marine base image
 	docker build -t astartes/marine-base:latest services/tacticarium/
 
+build-workstation: ## Build Cloud Workstation dev image
+	docker build -t astartes/workstation:latest infra/docker/workstation/
+
 build-all: build-python-base build-primarch build-aurum build-forge build-auspex build-marine-base ## Build all containers
 
 # ─── Database ───────────────────────────────────────────────
@@ -110,3 +113,40 @@ infra-plan: ## Plan infrastructure changes (requires GCP_PROJECT)
 
 infra-apply: ## Apply infrastructure changes (requires GCP_PROJECT)
 	cd infra/terraform && terraform apply -var="project_id=$(GCP_PROJECT)"
+
+# ─── Cloud Workstations ──────────────────────────────────────
+
+GCP_REGION ?= us-central1
+
+workstation-push: build-workstation ## Build and push workstation image to Artifact Registry (requires GCP_PROJECT)
+	@docker tag astartes/workstation:latest \
+		$(GCP_REGION)-docker.pkg.dev/$(GCP_PROJECT)/astartes-primaris/workstation:latest
+	docker push $(GCP_REGION)-docker.pkg.dev/$(GCP_PROJECT)/astartes-primaris/workstation:latest
+
+workstation-create: ## Create a Cloud Workstation (requires GCP_PROJECT)
+	gcloud workstations create astartes-dev \
+		--cluster=astartes-dev-dev \
+		--config=astartes-config-dev \
+		--region=$(GCP_REGION) \
+		--project=$(GCP_PROJECT)
+
+workstation-start: ## Start the Cloud Workstation
+	gcloud workstations start astartes-dev \
+		--cluster=astartes-dev-dev \
+		--config=astartes-config-dev \
+		--region=$(GCP_REGION) \
+		--project=$(GCP_PROJECT)
+
+workstation-stop: ## Stop the Cloud Workstation
+	gcloud workstations stop astartes-dev \
+		--cluster=astartes-dev-dev \
+		--config=astartes-config-dev \
+		--region=$(GCP_REGION) \
+		--project=$(GCP_PROJECT)
+
+workstation-ssh: ## SSH into the Cloud Workstation
+	gcloud workstations ssh astartes-dev \
+		--cluster=astartes-dev-dev \
+		--config=astartes-config-dev \
+		--region=$(GCP_REGION) \
+		--project=$(GCP_PROJECT)

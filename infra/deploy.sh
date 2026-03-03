@@ -7,6 +7,7 @@
 #   ./infra/deploy.sh primarch           # Deploy only Primarch
 #   ./infra/deploy.sh aurum              # Deploy only Aurum
 #   ./infra/deploy.sh forge              # Deploy only Forge (as Cloud Run Job)
+#   ./infra/deploy.sh workstation        # Build and push workstation dev image
 #
 # Environment variables:
 #   GCP_PROJECT   — GCP project ID (required)
@@ -87,6 +88,12 @@ fi
 if [[ "$TARGET" == "all" || "$TARGET" == "forge" ]]; then
   build_and_push "forge" "${ROOT}/services/forge"
   deploy_job "forge"
+fi
+
+if [[ "$TARGET" == "workstation" ]]; then
+  build_and_push "workstation" "${ROOT}/infra/docker/workstation"
+  log "Workstation image pushed. Create/update a workstation with:"
+  log "  make workstation-create GCP_PROJECT=${PROJECT}"
 fi
 
 echo ""
