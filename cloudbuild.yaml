@@ -60,27 +60,9 @@ steps:
       - services/forge
     waitFor: ['-']
 
-  - id: build-codex
-    name: gcr.io/cloud-builders/docker
-    args:
-      - build
-      - -t
-      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/astartes-primaris/codex:${SHORT_SHA}
-      - -t
-      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/astartes-primaris/codex:latest
-      - services/codex
-    waitFor: ['-']
-
-  - id: build-logis
-    name: gcr.io/cloud-builders/docker
-    args:
-      - build
-      - -t
-      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/astartes-primaris/logis:${SHORT_SHA}
-      - -t
-      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/astartes-primaris/logis:latest
-      - services/logis
-    waitFor: ['-']
+  # codex and logis: no source code yet, uncomment when implemented
+  # - id: build-codex
+  # - id: build-logis
 
   # ── Push images ───────────────────────────────────────────
   - id: push-primarch
@@ -103,15 +85,6 @@ steps:
     args: [push, --all-tags, "${_REGION}-docker.pkg.dev/$PROJECT_ID/astartes-primaris/forge"]
     waitFor: [build-forge]
 
-  - id: push-codex
-    name: gcr.io/cloud-builders/docker
-    args: [push, --all-tags, "${_REGION}-docker.pkg.dev/$PROJECT_ID/astartes-primaris/codex"]
-    waitFor: [build-codex]
-
-  - id: push-logis
-    name: gcr.io/cloud-builders/docker
-    args: [push, --all-tags, "${_REGION}-docker.pkg.dev/$PROJECT_ID/astartes-primaris/logis"]
-    waitFor: [build-logis]
 
   # ── Deploy to Cloud Run ───────────────────────────────────
   - id: deploy-primarch
@@ -139,6 +112,7 @@ steps:
       - --platform=managed
       - --port=8080
       - --set-env-vars=ENVIRONMENT=${_ENVIRONMENT}
+      - --allow-unauthenticated
       - --quiet
     waitFor: [push-aurum]
 
@@ -155,33 +129,6 @@ steps:
       - --quiet
     waitFor: [push-forge]
 
-  - id: deploy-codex
-    name: gcr.io/cloud-builders/gcloud
-    args:
-      - run
-      - deploy
-      - codex-${_ENVIRONMENT}
-      - --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/astartes-primaris/codex:${SHORT_SHA}
-      - --region=${_REGION}
-      - --platform=managed
-      - --port=8700
-      - --set-env-vars=ENVIRONMENT=${_ENVIRONMENT}
-      - --quiet
-    waitFor: [push-codex]
-
-  - id: deploy-logis
-    name: gcr.io/cloud-builders/gcloud
-    args:
-      - run
-      - deploy
-      - logis-${_ENVIRONMENT}
-      - --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/astartes-primaris/logis:${SHORT_SHA}
-      - --region=${_REGION}
-      - --platform=managed
-      - --port=8600
-      - --set-env-vars=ENVIRONMENT=${_ENVIRONMENT}
-      - --quiet
-    waitFor: [push-logis]
 
 images:
   - ${_REGION}-docker.pkg.dev/$PROJECT_ID/astartes-primaris/primarch:${SHORT_SHA}
@@ -192,7 +139,3 @@ images:
   - ${_REGION}-docker.pkg.dev/$PROJECT_ID/astartes-primaris/auspex:latest
   - ${_REGION}-docker.pkg.dev/$PROJECT_ID/astartes-primaris/forge:${SHORT_SHA}
   - ${_REGION}-docker.pkg.dev/$PROJECT_ID/astartes-primaris/forge:latest
-  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/astartes-primaris/codex:${SHORT_SHA}
-  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/astartes-primaris/codex:latest
-  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/astartes-primaris/logis:${SHORT_SHA}
-  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/astartes-primaris/logis:latest
