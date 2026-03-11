@@ -23,7 +23,7 @@ from datetime import datetime, timezone
 
 from .config import Config
 from .health import register as register_health, start_server as start_health
-from .writer import LibrariumWriter, BarRow, TickRow
+from .writer import LibrariumWriter, BarRow, TickRow, OptionChainRow
 from .vox import VoxPublisher
 
 # ── Logging ──────────────────────────────────────────────────
@@ -278,6 +278,16 @@ async def main() -> None:
     logger.info("Starting real-time streams...")
     await connector.start_streaming()
 
+    # ── TastyTrade options collection ──
+    tasty_connector = None
+    if config.tastytrade.enabled:
+        from .tastytrade import TastyTradeConnector
+
+        logger.info("TastyTrade enabled — starting options chain collection")
+        tasty_connector = TastyTradeConnector(config, writer)
+        await tasty_connector.connect()
+        await tasty_connector.start_periodic_collection()
+
     logger.info("=" * 60)
     logger.info("  AUSPEX ONLINE — Watching the void")
     logger.info("=" * 60)
@@ -295,12 +305,14 @@ async def main() -> None:
 
     # Run until stopped
     await stop_event.wait()
-    await shutdown(connector, writer, vox)
+    await shutdown(connector, writer, vox, tasty_connector)
 
 
-async def shutdown(connector, writer: LibrariumWriter, vox: VoxPublisher) -> None:
+async def shutdown(connector, writer: LibrariumWriter, vox: VoxPublisher, tasty=None) -> None:
     """Gracefully shut down all components."""
     logger.info("Shutting down Auspex...")
+    if tasty:
+        await tasty.disconnect()
     await connector.disconnect()
     await writer.stop()
     await vox.disconnect()

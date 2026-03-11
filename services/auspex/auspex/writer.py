@@ -53,6 +53,28 @@ class TickRow:
     side: str  # 'bid', 'ask', 'trade'
 
 
+@dataclass
+class OptionChainRow:
+    """A single row for the option_chains hypertable."""
+
+    time: datetime
+    underlying: str
+    expiration: datetime  # date
+    strike: float
+    option_type: str  # 'C' or 'P'
+    bid: float | None = None
+    ask: float | None = None
+    mark: float | None = None
+    volume: int | None = None
+    open_interest: int | None = None
+    delta: float | None = None
+    gamma: float | None = None
+    theta: float | None = None
+    vega: float | None = None
+    iv: float | None = None
+    source: str = "tastytrade"
+
+
 class LibrariumWriter:
     """Async batched writer for TimescaleDB market data tables."""
 
@@ -64,6 +86,7 @@ class LibrariumWriter:
         # Buffers
         self._bar_buffer: list[BarRow] = []
         self._tick_buffer: list[TickRow] = []
+        self._option_chain_buffer: list[OptionChainRow] = []
         self._lock = asyncio.Lock()
 
         # Flush control
@@ -75,6 +98,7 @@ class LibrariumWriter:
         # Stats
         self.bars_written = 0
         self.ticks_written = 0
+        self.options_written = 0
         self.flush_count = 0
         self.last_flush: float = 0
 
@@ -124,9 +148,10 @@ class LibrariumWriter:
             logger.info("Librarium connection pool closed")
 
         logger.info(
-            "Writer stopped. Total: %d bars, %d ticks written in %d flushes",
+            "Writer stopped. Total: %d bars, %d ticks, %d options written in %d flushes",
             self.bars_written,
             self.ticks_written,
+            self.options_written,
             self.flush_count,
         )
 
@@ -137,6 +162,10 @@ class LibrariumWriter:
     def add_tick(self, row: TickRow) -> None:
         """Add a tick to the write buffer (non-blocking)."""
         self._tick_buffer.append(row)
+
+    def add_option_chain(self, row: OptionChainRow) -> None:
+        """Add an option chain snapshot to the write buffer (non-blocking)."""
+        self._option_chain_buffer.append(row)
 
     async def _flush_loop(self) -> None:
         """Periodically flush buffers to DB."""
@@ -149,10 +178,12 @@ class LibrariumWriter:
         async with self._lock:
             bars = self._bar_buffer[:]
             ticks = self._tick_buffer[:]
+            options = self._option_chain_buffer[:]
             self._bar_buffer.clear()
             self._tick_buffer.clear()
+            self._option_chain_buffer.clear()
 
-        if not bars and not ticks:
+        if not bars and not ticks and not options:
             return
 
         try:
@@ -160,6 +191,8 @@ class LibrariumWriter:
                 await self._write_bars(bars)
             if ticks:
                 await self._write_ticks(ticks)
+            if options:
+                await self._write_option_chains(options)
 
             self.flush_count += 1
             self.last_flush = time.time()
@@ -169,6 +202,7 @@ class LibrariumWriter:
             async with self._lock:
                 self._bar_buffer = bars + self._bar_buffer
                 self._tick_buffer = ticks + self._tick_buffer
+                self._option_chain_buffer = options + self._option_chain_buffer
 
     async def _write_bars(self, bars: list[BarRow]) -> None:
         """Bulk insert bars using executemany with ON CONFLICT DO NOTHING."""
@@ -230,6 +264,51 @@ class LibrariumWriter:
         self.ticks_written += len(ticks)
         logger.debug("Flushed %d ticks to market_ticks", len(ticks))
 
+    async def _write_option_chains(self, options: list[OptionChainRow]) -> None:
+        """Bulk insert option chain snapshots."""
+        sql = """
+            INSERT INTO option_chains (
+                time, underlying, expiration, strike, option_type,
+                bid, ask, mark, volume, open_interest,
+                delta, gamma, theta, vega, iv, source
+            )
+            VALUES (
+                %(time)s, %(underlying)s, %(expiration)s, %(strike)s, %(option_type)s,
+                %(bid)s, %(ask)s, %(mark)s, %(volume)s, %(open_interest)s,
+                %(delta)s, %(gamma)s, %(theta)s, %(vega)s, %(iv)s, %(source)s
+            )
+        """
+
+        params = [
+            {
+                "time": o.time,
+                "underlying": o.underlying,
+                "expiration": o.expiration,
+                "strike": o.strike,
+                "option_type": o.option_type,
+                "bid": o.bid,
+                "ask": o.ask,
+                "mark": o.mark,
+                "volume": o.volume,
+                "open_interest": o.open_interest,
+                "delta": o.delta,
+                "gamma": o.gamma,
+                "theta": o.theta,
+                "vega": o.vega,
+                "iv": o.iv,
+                "source": o.source,
+            }
+            for o in options
+        ]
+
+        async with self._pool.connection() as conn:
+            async with conn.cursor() as cur:
+                await cur.executemany(sql, params)
+            await conn.commit()
+
+        self.options_written += len(options)
+        logger.debug("Flushed %d rows to option_chains", len(options))
+
     @property
     def buffer_size(self) -> int:
-        return len(self._bar_buffer) + len(self._tick_buffer)
+        return len(self._bar_buffer) + len(self._tick_buffer) + len(self._option_chain_buffer)

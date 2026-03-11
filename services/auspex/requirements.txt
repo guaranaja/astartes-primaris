@@ -7,3 +7,4 @@ nats-py>=2.6
 redis>=5.0
 structlog>=23.0
 httpx>=0.25
+tastytrade>=12.0

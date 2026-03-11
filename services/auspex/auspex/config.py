@@ -51,6 +51,17 @@ class AlpacaConfig:
     source: str = _env("ALPACA_DATA_SOURCE", "alpaca")
 
 
+class TastyTradeConfig:
+    """TastyTrade options data settings."""
+
+    client_secret: str = _env("TASTYTRADE_CLIENT_SECRET", "")
+    refresh_token: str = _env("TASTYTRADE_REFRESH_TOKEN", "")
+    symbols: list[str] = _env_list("TASTYTRADE_SYMBOLS", "SPY,QQQ,RIVN,UEC")
+    max_dte: int = _env_int("TASTYTRADE_MAX_DTE", 60)
+    collection_interval: int = _env_int("TASTYTRADE_COLLECTION_INTERVAL", 300)  # 5 min
+    enabled: bool = _env_bool("TASTYTRADE_ENABLED", False)
+
+
 class DataConfig:
     """What data to collect and how."""
 
@@ -116,6 +127,7 @@ class Config:
 
     ibkr = IBKRConfig()
     alpaca = AlpacaConfig()
+    tastytrade = TastyTradeConfig()
     data = DataConfig()
     librarium = LibrariumConfig()
     vox = VoxConfig()
