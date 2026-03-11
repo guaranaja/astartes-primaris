@@ -128,9 +128,9 @@ steps:
       - --port=8300
       - --no-cpu-throttling
       - --min-instances=1
-      - --set-env-vars=ENVIRONMENT=${_ENVIRONMENT},AUSPEX_PROVIDER=alpaca,ALPACA_FEED=iex,AUSPEX_SYMBOLS=SPY:AAPL:MSFT:GOOGL:AMZN:NVDA:META:TSLA,LIBRARIUM_HOST=10.118.0.3,LIBRARIUM_DB=librarium,LIBRARIUM_USER=librarium,AUSPEX_BACKFILL_DAYS=30,VOX_ENABLED=false
+      - --set-env-vars=^~^ENVIRONMENT=${_ENVIRONMENT}~AUSPEX_PROVIDER=alpaca~ALPACA_FEED=iex~AUSPEX_SYMBOLS=SPY,AAPL,MSFT,GOOGL,AMZN,NVDA,META,TSLA~LIBRARIUM_HOST=10.118.0.3~LIBRARIUM_DB=librarium~LIBRARIUM_USER=librarium~AUSPEX_BACKFILL_DAYS=30~VOX_ENABLED=false
       - --set-secrets=ALPACA_API_KEY=alpaca-api-key:latest,ALPACA_SECRET_KEY=alpaca-secret-key:latest,LIBRARIUM_PASSWORD=librarium-db-password-dev:latest
-      - --vpc-connector=projects/$PROJECT_ID/locations/${_REGION}/connectors/astartes-vpc-${_ENVIRONMENT}
+      - --vpc-connector=astartes-vpc-${_ENVIRONMENT}
       - --vpc-egress=private-ranges-only
       - --quiet
     waitFor: [push-auspex]
