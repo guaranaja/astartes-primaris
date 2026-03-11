@@ -16,8 +16,7 @@ from typing import TYPE_CHECKING
 
 from tastytrade import Session
 from tastytrade.instruments import get_option_chain
-from tastytrade.dxfeed import Quote, Greeks
-from tastytrade import DXLinkStreamer
+from tastytrade.market_data import get_market_data_by_type
 
 if TYPE_CHECKING:
     from .config import Config
@@ -96,81 +95,57 @@ class TastyTradeConnector:
                 logger.warning("No expirations within %d DTE for %s", self.cfg.max_dte, symbol)
                 continue
 
-            # Collect all streamer symbols for quotes and greeks
-            all_options = []
+            # Collect all options, process per-expiration to keep batch sizes manageable
             for exp, options in valid_expirations.items():
-                all_options.extend(options)
+                occ_symbols = [opt.symbol for opt in options]
 
-            streamer_symbols = [opt.streamer_symbol for opt in all_options]
-
-            if not streamer_symbols:
-                continue
-
-            # Fetch quotes and greeks via DXLink streamer
-            quotes: dict[str, Quote] = {}
-            greeks: dict[str, Greeks] = {}
-
-            try:
-                async with DXLinkStreamer(self._session) as streamer:
-                    await streamer.subscribe(Quote, streamer_symbols)
-                    await streamer.subscribe(Greeks, streamer_symbols)
-
-                    # Collect events with a timeout to avoid hanging
-                    deadline = asyncio.get_event_loop().time() + 30
-                    while len(quotes) < len(streamer_symbols) or len(greeks) < len(streamer_symbols):
-                        remaining = deadline - asyncio.get_event_loop().time()
-                        if remaining <= 0:
-                            break
-
-                        try:
-                            quote = await asyncio.wait_for(
-                                streamer.get_event(Quote), timeout=min(remaining, 2.0),
-                            )
-                            quotes[quote.eventSymbol] = quote
-                        except asyncio.TimeoutError:
-                            pass
-
-                        try:
-                            greek = await asyncio.wait_for(
-                                streamer.get_event(Greeks), timeout=min(remaining, 2.0),
-                            )
-                            greeks[greek.eventSymbol] = greek
-                        except asyncio.TimeoutError:
-                            pass
-
-            except Exception:
-                logger.exception("Streamer error for %s", symbol)
-                continue
-
-            # Build rows from collected data
-            for opt in all_options:
-                ss = opt.streamer_symbol
-                q = quotes.get(ss)
-                g = greeks.get(ss)
-
-                if not q and not g:
+                if not occ_symbols:
                     continue
 
-                row = OptionChainRow(
-                    time=now,
-                    underlying=symbol,
-                    expiration=opt.expiration_date,
-                    strike=float(opt.strike_price),
-                    option_type="C" if opt.option_type.value == "C" else "P",
-                    bid=float(q.bidPrice) if q and q.bidPrice else None,
-                    ask=float(q.askPrice) if q and q.askPrice else None,
-                    mark=float(g.price) if g and g.price else None,
-                    volume=int(q.dayVolume) if q and q.dayVolume else None,
-                    open_interest=int(opt.open_interest) if hasattr(opt, "open_interest") and opt.open_interest else None,
-                    delta=float(g.delta) if g and g.delta else None,
-                    gamma=float(g.gamma) if g and g.gamma else None,
-                    theta=float(g.theta) if g and g.theta else None,
-                    vega=float(g.vega) if g and g.vega else None,
-                    iv=float(g.volatility) if g and g.volatility else None,
-                    source="tastytrade",
-                )
-                self._writer.add_option_chain(row)
-                total += 1
+                # Fetch market data in batches of 100 via REST
+                snapshots: dict = {}
+                for i in range(0, len(occ_symbols), 100):
+                    batch = occ_symbols[i : i + 100]
+                    try:
+                        data = await get_market_data_by_type(
+                            self._session, options=batch,
+                        )
+                        for item in data:
+                            snapshots[item.symbol] = item
+                    except Exception:
+                        logger.exception(
+                            "Market data error for %s exp %s batch %d",
+                            symbol, exp, i,
+                        )
+
+                # Build rows
+                for opt in options:
+                    snap = snapshots.get(opt.symbol)
+                    if not snap:
+                        continue
+
+                    # REST MarketData has bid/ask/mark/volume/open_interest.
+                    # Greeks require DXLink streaming (future enhancement).
+                    row = OptionChainRow(
+                        time=now,
+                        underlying=symbol,
+                        expiration=opt.expiration_date,
+                        strike=float(opt.strike_price),
+                        option_type="C" if opt.option_type.value == "C" else "P",
+                        bid=float(snap.bid) if snap.bid is not None else None,
+                        ask=float(snap.ask) if snap.ask is not None else None,
+                        mark=float(snap.mark),
+                        volume=int(snap.volume) if snap.volume is not None else None,
+                        open_interest=int(snap.open_interest) if snap.open_interest is not None else None,
+                        delta=None,
+                        gamma=None,
+                        theta=None,
+                        vega=None,
+                        iv=None,
+                        source="tastytrade",
+                    )
+                    self._writer.add_option_chain(row)
+                    total += 1
 
             logger.info(
                 "Collected %d option snapshots for %s (%d expirations)",
