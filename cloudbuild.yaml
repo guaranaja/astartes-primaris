@@ -1,0 +1,198 @@
+# Astartes Primaris — Cloud Build Pipeline
+# Triggered on push to main. Builds all service images, pushes to
+# Artifact Registry, and deploys to Cloud Run.
+#
+# Substitutions (set in trigger config):
+#   _REGION       — GCP region (default: us-central1)
+#   _ENVIRONMENT  — dev / staging / prod (default: dev)
+
+substitutions:
+  _REGION: us-central1
+  _ENVIRONMENT: dev
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+  machineType: E2_HIGHCPU_8
+
+steps:
+  # ── Build images in parallel ──────────────────────────────
+  - id: build-primarch
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -t
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/astartes-primaris/primarch:${SHORT_SHA}
+      - -t
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/astartes-primaris/primarch:latest
+      - services/primarch
+    waitFor: ['-']
+
+  - id: build-aurum
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -t
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/astartes-primaris/aurum:${SHORT_SHA}
+      - -t
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/astartes-primaris/aurum:latest
+      - services/aurum
+    waitFor: ['-']
+
+  - id: build-auspex
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -t
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/astartes-primaris/auspex:${SHORT_SHA}
+      - -t
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/astartes-primaris/auspex:latest
+      - services/auspex
+    waitFor: ['-']
+
+  - id: build-forge
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -t
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/astartes-primaris/forge:${SHORT_SHA}
+      - -t
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/astartes-primaris/forge:latest
+      - services/forge
+    waitFor: ['-']
+
+  - id: build-codex
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -t
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/astartes-primaris/codex:${SHORT_SHA}
+      - -t
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/astartes-primaris/codex:latest
+      - services/codex
+    waitFor: ['-']
+
+  - id: build-logis
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -t
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/astartes-primaris/logis:${SHORT_SHA}
+      - -t
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/astartes-primaris/logis:latest
+      - services/logis
+    waitFor: ['-']
+
+  # ── Push images ───────────────────────────────────────────
+  - id: push-primarch
+    name: gcr.io/cloud-builders/docker
+    args: [push, --all-tags, "${_REGION}-docker.pkg.dev/$PROJECT_ID/astartes-primaris/primarch"]
+    waitFor: [build-primarch]
+
+  - id: push-aurum
+    name: gcr.io/cloud-builders/docker
+    args: [push, --all-tags, "${_REGION}-docker.pkg.dev/$PROJECT_ID/astartes-primaris/aurum"]
+    waitFor: [build-aurum]
+
+  - id: push-auspex
+    name: gcr.io/cloud-builders/docker
+    args: [push, --all-tags, "${_REGION}-docker.pkg.dev/$PROJECT_ID/astartes-primaris/auspex"]
+    waitFor: [build-auspex]
+
+  - id: push-forge
+    name: gcr.io/cloud-builders/docker
+    args: [push, --all-tags, "${_REGION}-docker.pkg.dev/$PROJECT_ID/astartes-primaris/forge"]
+    waitFor: [build-forge]
+
+  - id: push-codex
+    name: gcr.io/cloud-builders/docker
+    args: [push, --all-tags, "${_REGION}-docker.pkg.dev/$PROJECT_ID/astartes-primaris/codex"]
+    waitFor: [build-codex]
+
+  - id: push-logis
+    name: gcr.io/cloud-builders/docker
+    args: [push, --all-tags, "${_REGION}-docker.pkg.dev/$PROJECT_ID/astartes-primaris/logis"]
+    waitFor: [build-logis]
+
+  # ── Deploy to Cloud Run ───────────────────────────────────
+  - id: deploy-primarch
+    name: gcr.io/cloud-builders/gcloud
+    args:
+      - run
+      - deploy
+      - primarch-${_ENVIRONMENT}
+      - --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/astartes-primaris/primarch:${SHORT_SHA}
+      - --region=${_REGION}
+      - --platform=managed
+      - --port=8401
+      - --set-env-vars=ENVIRONMENT=${_ENVIRONMENT}
+      - --quiet
+    waitFor: [push-primarch]
+
+  - id: deploy-aurum
+    name: gcr.io/cloud-builders/gcloud
+    args:
+      - run
+      - deploy
+      - aurum-${_ENVIRONMENT}
+      - --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/astartes-primaris/aurum:${SHORT_SHA}
+      - --region=${_REGION}
+      - --platform=managed
+      - --port=8080
+      - --set-env-vars=ENVIRONMENT=${_ENVIRONMENT}
+      - --quiet
+    waitFor: [push-aurum]
+
+  - id: deploy-forge
+    name: gcr.io/cloud-builders/gcloud
+    args:
+      - run
+      - jobs
+      - deploy
+      - forge-${_ENVIRONMENT}
+      - --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/astartes-primaris/forge:${SHORT_SHA}
+      - --region=${_REGION}
+      - --set-env-vars=ENVIRONMENT=${_ENVIRONMENT}
+      - --quiet
+    waitFor: [push-forge]
+
+  - id: deploy-codex
+    name: gcr.io/cloud-builders/gcloud
+    args:
+      - run
+      - deploy
+      - codex-${_ENVIRONMENT}
+      - --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/astartes-primaris/codex:${SHORT_SHA}
+      - --region=${_REGION}
+      - --platform=managed
+      - --port=8700
+      - --set-env-vars=ENVIRONMENT=${_ENVIRONMENT}
+      - --quiet
+    waitFor: [push-codex]
+
+  - id: deploy-logis
+    name: gcr.io/cloud-builders/gcloud
+    args:
+      - run
+      - deploy
+      - logis-${_ENVIRONMENT}
+      - --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/astartes-primaris/logis:${SHORT_SHA}
+      - --region=${_REGION}
+      - --platform=managed
+      - --port=8600
+      - --set-env-vars=ENVIRONMENT=${_ENVIRONMENT}
+      - --quiet
+    waitFor: [push-logis]
+
+images:
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/astartes-primaris/primarch:${SHORT_SHA}
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/astartes-primaris/primarch:latest
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/astartes-primaris/aurum:${SHORT_SHA}
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/astartes-primaris/aurum:latest
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/astartes-primaris/auspex:${SHORT_SHA}
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/astartes-primaris/auspex:latest
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/astartes-primaris/forge:${SHORT_SHA}
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/astartes-primaris/forge:latest
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/astartes-primaris/codex:${SHORT_SHA}
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/astartes-primaris/codex:latest
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/astartes-primaris/logis:${SHORT_SHA}
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/astartes-primaris/logis:latest
