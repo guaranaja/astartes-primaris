@@ -15,23 +15,22 @@ from threading import Thread
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from .ibkr import IBKRConnector
     from .writer import LibrariumWriter
     from .vox import VoxPublisher
 
 logger = logging.getLogger("auspex.health")
 
 # Module-level references set by main
-_ibkr: IBKRConnector | None = None
+_connector = None  # IBKRConnector or AlpacaConnector — any object with .connected and .contract_count
 _writer: LibrariumWriter | None = None
 _vox: VoxPublisher | None = None
 _start_time: float = 0
 
 
-def register(ibkr: IBKRConnector, writer: LibrariumWriter, vox: VoxPublisher) -> None:
+def register(connector, writer: LibrariumWriter, vox: VoxPublisher) -> None:
     """Register components for health reporting."""
-    global _ibkr, _writer, _vox, _start_time
-    _ibkr = ibkr
+    global _connector, _writer, _vox, _start_time
+    _connector = connector
     _writer = writer
     _vox = vox
     _start_time = time.time()
@@ -48,7 +47,7 @@ class _Handler(BaseHTTPRequestHandler):
             self.end_headers()
 
     def _handle_health(self):
-        ibkr_ok = _ibkr.connected if _ibkr else False
+        ibkr_ok = _connector.connected if _connector else False
         writer_ok = _writer is not None
         vox_ok = _vox.connected if _vox else False
 
@@ -57,7 +56,7 @@ class _Handler(BaseHTTPRequestHandler):
 
         body = {
             "status": "ok" if healthy else "degraded",
-            "ibkr": "connected" if ibkr_ok else "disconnected",
+            "provider": "connected" if ibkr_ok else "disconnected",
             "librarium": "connected" if writer_ok else "disconnected",
             "vox": "connected" if vox_ok else "disconnected",
             "uptime_s": int(time.time() - _start_time) if _start_time else 0,
@@ -76,8 +75,8 @@ class _Handler(BaseHTTPRequestHandler):
             "buffer_size": _writer.buffer_size if _writer else 0,
             "last_flush": _writer.last_flush if _writer else 0,
             "vox_messages": _vox.messages_published if _vox else 0,
-            "ibkr_contracts": _ibkr.contract_count if _ibkr else 0,
-            "ibkr_connected": _ibkr.connected if _ibkr else False,
+            "provider_symbols": _connector.contract_count if _connector else 0,
+            "provider_connected": _connector.connected if _connector else False,
         }
 
         self.send_response(200)

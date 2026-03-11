@@ -42,11 +42,21 @@ class IBKRConfig:
     timeout: int = _env_int("IBKR_TIMEOUT", 30)
 
 
+class AlpacaConfig:
+    """Alpaca Markets data API settings."""
+
+    api_key: str = _env("ALPACA_API_KEY", "")
+    secret_key: str = _env("ALPACA_SECRET_KEY", "")
+    feed: str = _env("ALPACA_FEED", "iex")  # iex or sip for stocks, us for crypto
+    source: str = _env("ALPACA_DATA_SOURCE", "alpaca")
+
+
 class DataConfig:
     """What data to collect and how."""
 
-    # Symbols to track — IBKR contract format: "SYMBOL:EXCHANGE:SECTYPE:CURRENCY"
-    # Examples: "ES:CME:FUT:USD", "NQ:CME:FUT:USD", "AAPL:SMART:STK:USD"
+    # Symbols to track
+    # IBKR format: "SYMBOL:EXCHANGE:SECTYPE:CURRENCY" (e.g. "ES:CME:FUT:USD")
+    # Alpaca format: plain symbols (e.g. "SPY", "AAPL", "BTC/USD")
     symbols: list[str] = _env_list("AUSPEX_SYMBOLS", "ES:CME:FUT:USD,NQ:CME:FUT:USD,MES:CME:FUT:USD,MNQ:CME:FUT:USD")
 
     # Bar timeframes to collect
@@ -105,8 +115,10 @@ class Config:
     """Top-level Auspex configuration."""
 
     ibkr = IBKRConfig()
+    alpaca = AlpacaConfig()
     data = DataConfig()
     librarium = LibrariumConfig()
     vox = VoxConfig()
     health = HealthConfig()
     log_level: str = _env("AUSPEX_LOG_LEVEL", "info")
+    provider: str = _env("AUSPEX_PROVIDER", "alpaca")  # "ibkr" or "alpaca"
