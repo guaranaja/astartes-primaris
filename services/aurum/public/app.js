@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════
-// AURUM — Astartes Primaris Dashboard
+// STRATEGIUM — Astartes Primaris Dashboard
 // ═══════════════════════════════════════════════════════════
 
 const App = {

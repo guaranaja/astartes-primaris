@@ -52,6 +52,6 @@ const server = http.createServer((req, res) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`\n  AURUM dashboard: http://localhost:${PORT}`);
+  console.log(`\n  STRATEGIUM dashboard: http://localhost:${PORT}`);
   console.log(`  Proxying API to: ${PRIMARCH_URL}\n`);
 });
