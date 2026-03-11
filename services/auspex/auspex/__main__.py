@@ -213,6 +213,9 @@ async def main() -> None:
     logger.info("Backfill: %d days", config.data.backfill_days)
     logger.info("Ticks: %s | Bars: %s", config.data.stream_ticks, config.data.stream_bars)
 
+    # ── Health server (start early so Cloud Run health checks pass) ──
+    start_health(config.health.port)
+
     # ── Components ──
     writer = LibrariumWriter(config)
     vox = VoxPublisher(config)
@@ -233,9 +236,7 @@ async def main() -> None:
         logger.error("Unknown provider '%s'. Use 'ibkr' or 'alpaca'.", provider)
         return
 
-    # ── Health server ──
     register_health(connector, writer, vox)
-    start_health(config.health.port)
 
     # ── Connect all ──
     logger.info("Connecting to Librarium...")

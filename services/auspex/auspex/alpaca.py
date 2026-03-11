@@ -18,6 +18,7 @@ from alpaca.data.historical import StockHistoricalDataClient, CryptoHistoricalDa
 from alpaca.data.live import StockDataStream, CryptoDataStream
 from alpaca.data.requests import StockBarsRequest, CryptoBarsRequest
 from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
+from alpaca.data.enums import DataFeed
 
 if TYPE_CHECKING:
     from .config import Config
@@ -72,7 +73,8 @@ class AlpacaConnector:
         self._crypto_client = CryptoHistoricalDataClient(api_key, secret_key)
 
         # Websocket streams for real-time data
-        self._stock_stream = StockDataStream(api_key, secret_key, feed=self.cfg.feed)
+        feed = DataFeed(self.cfg.feed)
+        self._stock_stream = StockDataStream(api_key, secret_key, feed=feed)
         self._crypto_stream = CryptoDataStream(api_key, secret_key)
 
         # Classify symbols
