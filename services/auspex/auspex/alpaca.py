@@ -165,6 +165,7 @@ class AlpacaConnector:
                 timeframe=timeframe,
                 start=start,
                 end=end,
+                feed=DataFeed.IEX,
             )
             barset = self._stock_client.get_stock_bars(request)
 
@@ -242,27 +243,33 @@ class AlpacaConnector:
 
     async def _run_stock_stream(self) -> None:
         """Run the stock websocket stream (reconnects on failure)."""
+        backoff = 5
         while self._running:
             try:
                 logger.info("Connecting stock data stream...")
                 await self._stock_stream._run_forever()
+                backoff = 5  # Reset on clean exit
             except Exception:
                 if not self._running:
                     break
-                logger.exception("Stock stream disconnected, reconnecting in 5s...")
-                await asyncio.sleep(5)
+                logger.exception("Stock stream disconnected, reconnecting in %ds...", backoff)
+                await asyncio.sleep(backoff)
+                backoff = min(backoff * 2, 120)
 
     async def _run_crypto_stream(self) -> None:
         """Run the crypto websocket stream (reconnects on failure)."""
+        backoff = 5
         while self._running:
             try:
                 logger.info("Connecting crypto data stream...")
                 await self._crypto_stream._run_forever()
+                backoff = 5
             except Exception:
                 if not self._running:
                     break
-                logger.exception("Crypto stream disconnected, reconnecting in 5s...")
-                await asyncio.sleep(5)
+                logger.exception("Crypto stream disconnected, reconnecting in %ds...", backoff)
+                await asyncio.sleep(backoff)
+                backoff = min(backoff * 2, 120)
 
     async def _on_stock_bar(self, bar) -> None:
         """Handle incoming real-time stock bar."""
