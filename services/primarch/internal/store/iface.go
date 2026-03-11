@@ -77,4 +77,10 @@ type DataStore interface {
 	RecordPayment(p domain.Payment) error
 	ListPayments(expenseID string) []domain.Payment
 	GetBillingSummary() domain.BillingSummary
+
+	// ─── Holdings ──────────────────────────────────────
+	ListHoldings() []domain.Holding
+	CreateHolding(h *domain.Holding) error
+	UpdateHolding(h *domain.Holding) error
+	DeleteHolding(id string) error
 }

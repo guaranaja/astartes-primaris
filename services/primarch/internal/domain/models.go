@@ -169,6 +169,48 @@ type SystemEvent struct {
 }
 
 // ═══════════════════════════════════════════════════════════
+// HOLDINGS — Manual Stock Positions for Wheel Strategy
+// ═══════════════════════════════════════════════════════════
+
+// Holding represents a manually-entered stock position.
+type Holding struct {
+	ID          string    `json:"id"`
+	Symbol      string    `json:"symbol"`
+	Quantity    float64   `json:"quantity"`
+	AvgCost     float64   `json:"avg_cost"`
+	AcquiredAt  string    `json:"acquired_at,omitempty"` // YYYY-MM-DD
+	Notes       string    `json:"notes,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+// WheelAnalysis contains wheel strategy recommendations for a holding.
+type WheelAnalysis struct {
+	Symbol         string              `json:"symbol"`
+	Quantity       float64             `json:"quantity"`
+	AvgCost        float64             `json:"avg_cost"`
+	CurrentPrice   float64             `json:"current_price,omitempty"`
+	CoveredCalls   []OptionRecommendation `json:"covered_calls"`
+	CashSecuredPuts []OptionRecommendation `json:"cash_secured_puts"`
+	DataAsOf       time.Time           `json:"data_as_of"`
+}
+
+// OptionRecommendation is a single option contract suggestion.
+type OptionRecommendation struct {
+	Expiration    string  `json:"expiration"`
+	Strike        float64 `json:"strike"`
+	OptionType    string  `json:"option_type"`
+	Bid           float64 `json:"bid"`
+	Ask           float64 `json:"ask"`
+	Mark          float64 `json:"mark"`
+	Volume        int     `json:"volume"`
+	OpenInterest  int     `json:"open_interest"`
+	DTE           int     `json:"dte"`
+	PremiumPerDay float64 `json:"premium_per_day"`
+	AnnualReturn  float64 `json:"annual_return_pct"`
+}
+
+// ═══════════════════════════════════════════════════════════
 // COUNCIL — Financial War Room & Career Progression
 // ═══════════════════════════════════════════════════════════
 //

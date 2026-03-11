@@ -28,6 +28,7 @@ type Store struct {
 	contributions []domain.GoalContribution
 	expenses      map[string]*domain.Expense
 	payments      []domain.Payment
+	holdings      map[string]*domain.Holding
 }
 
 // New creates a new empty store.
@@ -42,6 +43,7 @@ func New() *Store {
 		roadmap:     DefaultRoadmap(),
 		goals:       make(map[string]*domain.Goal),
 		expenses:    make(map[string]*domain.Expense),
+		holdings:    make(map[string]*domain.Holding),
 	}
 }
 
@@ -351,4 +353,52 @@ func (s *Store) ActivateKillSwitch(scope string) {
 			m.Schedule.Enabled = false
 		}
 	}
+}
+
+// ─── Holdings ───────────────────────────────────────────────
+
+func (s *Store) ListHoldings() []domain.Holding {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]domain.Holding, 0, len(s.holdings))
+	for _, h := range s.holdings {
+		out = append(out, *h)
+	}
+	return out
+}
+
+func (s *Store) CreateHolding(h *domain.Holding) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, exists := s.holdings[h.ID]; exists {
+		return fmt.Errorf("holding %q already exists", h.ID)
+	}
+	now := time.Now()
+	h.CreatedAt = now
+	h.UpdatedAt = now
+	cp := *h
+	s.holdings[h.ID] = &cp
+	return nil
+}
+
+func (s *Store) UpdateHolding(h *domain.Holding) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.holdings[h.ID]; !ok {
+		return fmt.Errorf("holding %q not found", h.ID)
+	}
+	h.UpdatedAt = time.Now()
+	cp := *h
+	s.holdings[h.ID] = &cp
+	return nil
+}
+
+func (s *Store) DeleteHolding(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.holdings[id]; !ok {
+		return fmt.Errorf("holding %q not found", id)
+	}
+	delete(s.holdings, id)
+	return nil
 }

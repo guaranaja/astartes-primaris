@@ -32,6 +32,9 @@
       <button class="nav-btn" data-view="council" data-key="5">
         <span class="nav-key">5</span> Council
       </button>
+      <button class="nav-btn" data-view="arsenal" data-key="6">
+        <span class="nav-key">6</span> Arsenal
+      </button>
     </nav>
     <div class="topbar-right">
       <div class="connection-status" id="connStatus">
@@ -436,7 +439,65 @@
         </div>
       </div>
     </div>
+
+    <!-- ═══ VIEW: Arsenal (Holdings + Wheel Analysis) ════ -->
+    <div class="view" id="view-arsenal">
+      <div class="arsenal-layout">
+        <!-- Holdings -->
+        <div class="section">
+          <div class="section-header">
+            <h2>Stock Holdings</h2>
+            <button class="btn btn-sm" onclick="App.addHolding()">+ Add Holding</button>
+          </div>
+          <div class="table-wrap">
+            <table class="data-table" id="holdingsTable">
+              <thead>
+                <tr>
+                  <th>Symbol</th>
+                  <th>Shares</th>
+                  <th>Avg Cost</th>
+                  <th>Total Cost</th>
+                  <th>Lots (100s)</th>
+                  <th>Notes</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="holdingsBody">
+                <tr><td colspan="7" class="empty-state">No holdings — add your stock positions</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Wheel Analysis -->
+        <div class="section">
+          <div class="section-header">
+            <h2>Wheel Analysis</h2>
+            <button class="btn btn-sm btn-primary" onclick="App.runWheelAnalysis()">Analyze</button>
+          </div>
+          <div id="wheelAnalysis" class="wheel-analysis">
+            <div class="empty-state">Add holdings and click Analyze to get wheel strategy recommendations</div>
+          </div>
+        </div>
+      </div>
+    </div>
   </main>
+
+  <!-- ─── Login Overlay ───────────────────────────────────── -->
+  <div id="loginOverlay" class="login-overlay hidden">
+    <div class="login-box">
+      <div class="login-logo">
+        <span class="logo-icon">⚔</span>
+        <div class="logo-text">STRATEGIUM</div>
+        <div class="logo-sub">ASTARTES PRIMARIS</div>
+      </div>
+      <form id="loginForm" onsubmit="App.login(event)">
+        <input type="password" id="loginPassword" class="input" placeholder="Enter password" autofocus>
+        <button type="submit" class="btn btn-primary btn-lg" style="width:100%">Authenticate</button>
+        <div id="loginError" class="login-error hidden"></div>
+      </form>
+    </div>
+  </div>
 
   <!-- ─── Modals ────────────────────────────────────────── -->
   <div id="modal" class="modal hidden">

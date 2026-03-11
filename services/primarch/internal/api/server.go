@@ -43,7 +43,7 @@ func NewServerWithHub(s store.DataStore, sched *scheduler.Scheduler, logger *slo
 
 // Handler returns the HTTP handler.
 func (s *Server) Handler() http.Handler {
-	return corsMiddleware(logMiddleware(s.mux, s.logger))
+	return corsMiddleware(authMiddleware(logMiddleware(s.mux, s.logger)))
 }
 
 // Hub returns the WebSocket hub for broadcasting events.
@@ -52,6 +52,11 @@ func (s *Server) Hub() *WSHub {
 }
 
 func (s *Server) routes() {
+	// Auth
+	s.mux.HandleFunc("POST /api/v1/login", s.handleLogin)
+	s.mux.HandleFunc("POST /api/v1/logout", s.handleLogout)
+	s.mux.HandleFunc("GET /api/v1/auth-check", s.handleAuthCheck)
+
 	// Health
 	s.mux.HandleFunc("GET /health", s.handleHealth)
 	s.mux.HandleFunc("GET /api/v1/status", s.handleStatus)
@@ -90,6 +95,15 @@ func (s *Server) routes() {
 
 	// WebSocket
 	s.mux.HandleFunc("GET /ws", s.hub.HandleWebSocket)
+
+	// Holdings
+	s.mux.HandleFunc("GET /api/v1/holdings", s.handleListHoldings)
+	s.mux.HandleFunc("POST /api/v1/holdings", s.handleCreateHolding)
+	s.mux.HandleFunc("PUT /api/v1/holdings/{id}", s.handleUpdateHolding)
+	s.mux.HandleFunc("DELETE /api/v1/holdings/{id}", s.handleDeleteHolding)
+
+	// Wheel Analysis
+	s.mux.HandleFunc("GET /api/v1/wheel-analysis", s.handleWheelAnalysis)
 
 	// Council
 	s.registerCouncilRoutes()

@@ -40,6 +40,11 @@ func (s *PGStore) Close() error {
 	return s.db.Close()
 }
 
+// DB returns the underlying database connection for direct queries.
+func (s *PGStore) DB() *sql.DB {
+	return s.db
+}
+
 // ─── Fortress ───────────────────────────────────────────────
 
 func (s *PGStore) ListFortresses() []domain.Fortress {
@@ -1010,6 +1015,73 @@ func calcPayoutsNeededFromList(remaining float64, payouts []domain.Payout, alloc
 	}
 	return -1
 }
+
+// ─── Holdings ────────────────────────────────────────────
+
+func (s *PGStore) ListHoldings() []domain.Holding {
+	rows, err := s.db.Query(`SELECT id, symbol, quantity, avg_cost, acquired_at, notes, created_at, updated_at FROM holdings ORDER BY symbol`)
+	if err != nil {
+		s.logger.Error("list holdings", "error", err)
+		return nil
+	}
+	defer rows.Close()
+
+	var out []domain.Holding
+	for rows.Next() {
+		var h domain.Holding
+		var acq, notes sql.NullString
+		if err := rows.Scan(&h.ID, &h.Symbol, &h.Quantity, &h.AvgCost, &acq, &notes, &h.CreatedAt, &h.UpdatedAt); err != nil {
+			s.logger.Error("scan holding", "error", err)
+			continue
+		}
+		h.AcquiredAt = acq.String
+		h.Notes = notes.String
+		out = append(out, h)
+	}
+	return out
+}
+
+func (s *PGStore) CreateHolding(h *domain.Holding) error {
+	now := time.Now()
+	h.CreatedAt = now
+	h.UpdatedAt = now
+	_, err := s.db.Exec(`INSERT INTO holdings (id, symbol, quantity, avg_cost, acquired_at, notes, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+		h.ID, h.Symbol, h.Quantity, h.AvgCost, nullStr(h.AcquiredAt), nullStr(h.Notes), h.CreatedAt, h.UpdatedAt)
+	return err
+}
+
+func (s *PGStore) UpdateHolding(h *domain.Holding) error {
+	h.UpdatedAt = time.Now()
+	res, err := s.db.Exec(`UPDATE holdings SET symbol=$2, quantity=$3, avg_cost=$4, acquired_at=$5, notes=$6, updated_at=$7 WHERE id=$1`,
+		h.ID, h.Symbol, h.Quantity, h.AvgCost, nullStr(h.AcquiredAt), nullStr(h.Notes), h.UpdatedAt)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return fmt.Errorf("holding %q not found", h.ID)
+	}
+	return nil
+}
+
+func (s *PGStore) DeleteHolding(id string) error {
+	res, err := s.db.Exec(`DELETE FROM holdings WHERE id=$1`, id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return fmt.Errorf("holding %q not found", id)
+	}
+	return nil
+}
+
+func nullStr(s string) interface{} {
+	if s == "" {
+		return nil
+	}
+	return s
+}
+
+// ─── Helpers ────────────────────────────────────────────
 
 func distributeWithdrawal(amount float64, allocs []domain.Allocation) []domain.Allocation {
 	if len(allocs) == 0 {

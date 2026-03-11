@@ -1379,6 +1379,58 @@ select.input option { background: var(--bg-1); }
 }
 .phase-milestone-dot.done { background: var(--green); }
 
+/* ─── Login Overlay ──────────────────────────────────────── */
+
+.login-overlay {
+  position: fixed; inset: 0;
+  background: var(--bg-dark);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 9999;
+}
+.login-overlay.hidden { display: none; }
+.login-box {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 40px;
+  width: 360px;
+  text-align: center;
+}
+.login-box .logo-icon { font-size: 32px; display: block; margin-bottom: 8px; }
+.login-box .logo-text { font-size: 20px; font-weight: 700; color: var(--gold); letter-spacing: 4px; }
+.login-box .logo-sub { font-size: 10px; color: var(--text-dim); letter-spacing: 3px; margin-bottom: 24px; }
+.login-box form { display: flex; flex-direction: column; gap: 12px; margin-top: 20px; }
+.login-error { color: var(--red); font-size: 13px; margin-top: 4px; }
+.login-error.hidden { display: none; }
+
+/* ─── Arsenal View ───────────────────────────────────────── */
+
+.arsenal-layout { display: flex; flex-direction: column; gap: 20px; }
+
+.wheel-analysis { display: flex; flex-direction: column; gap: 24px; }
+.wheel-symbol {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 16px;
+}
+.wheel-header {
+  display: flex; align-items: baseline; gap: 12px;
+  margin-bottom: 12px; padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+.wheel-header h3 { margin: 0; font-size: 18px; color: var(--gold); }
+.wheel-info { font-size: 12px; color: var(--text-dim); font-family: var(--font-mono); }
+.wheel-section { margin-bottom: 16px; }
+.wheel-section:last-child { margin-bottom: 0; }
+.wheel-section h4 {
+  font-size: 13px; color: var(--text-secondary); margin: 0 0 8px 0;
+  text-transform: uppercase; letter-spacing: 1px;
+}
+
+.positive { color: var(--green); }
+.negative { color: var(--red); }
+
 /* ─── Responsive ─────────────────────────────────────────── */
 
 @media (max-width: 1200px) {

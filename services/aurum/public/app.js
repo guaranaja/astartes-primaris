@@ -25,13 +25,21 @@ const App = {
 
   // ─── Init ──────────────────────────────────────────────
 
-  init() {
+  async init() {
+    // Check auth first
+    try {
+      await this.api('/auth-check');
+    } catch (e) {
+      document.getElementById('loginOverlay').classList.remove('hidden');
+      return;
+    }
     this.bindNav();
     this.bindKeyboard();
     this.connectSSE();
     this.pollStatus();
     this.loadData();
     this.loadCouncil();
+    this.loadHoldings();
   },
 
   // ─── API Client ────────────────────────────────────────
@@ -1240,7 +1248,7 @@ const App = {
 
       // Number keys switch views
       if (e.key >= '1' && e.key <= '5') {
-        const views = ['throne', 'tactical', 'forge', 'performance', 'council'];
+        const views = ['throne', 'tactical', 'forge', 'performance', 'council', 'arsenal'];
         this.switchView(views[parseInt(e.key) - 1]);
         return;
       }
@@ -1300,6 +1308,7 @@ const App = {
       { icon: '⚒', label: 'Forge Console', key: '3', action: () => this.switchView('forge') },
       { icon: '📊', label: 'Performance', key: '4', action: () => this.switchView('performance') },
       { icon: '⚖', label: 'Council', key: '5', action: () => this.switchView('council') },
+      { icon: '⎔', label: 'Arsenal (Holdings + Wheel)', key: '6', action: () => this.switchView('arsenal') },
       { icon: '+', label: 'Create Fortress', key: '', action: () => this.createFortress() },
       { icon: '⊘', label: 'Kill Switch', key: 'Ctrl+K', action: () => this.killSwitch() },
       { icon: '↻', label: 'Refresh Data', key: 'R', action: () => this.loadData() },
@@ -1375,6 +1384,251 @@ const App = {
       setTimeout(() => { el.remove(); this._flashCount = Math.max(0, this._flashCount - 1); }, 300);
     }, 3000);
   },
+};
+
+// ─── Login ────────────────────────────────────────────────
+
+App.login = async function(e) {
+  e.preventDefault();
+  const pw = document.getElementById('loginPassword').value;
+  const errEl = document.getElementById('loginError');
+  try {
+    await fetch('/api/v1/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: pw }),
+    }).then(r => {
+      if (!r.ok) throw new Error('Invalid password');
+      return r.json();
+    });
+    document.getElementById('loginOverlay').classList.add('hidden');
+    App.bindNav();
+    App.bindKeyboard();
+    App.connectSSE();
+    App.pollStatus();
+    App.loadData();
+    App.loadCouncil();
+    App.loadHoldings();
+  } catch (err) {
+    errEl.textContent = err.message;
+    errEl.classList.remove('hidden');
+  }
+};
+
+// ─── Holdings ─────────────────────────────────────────────
+
+App.loadHoldings = async function() {
+  try {
+    App.state.holdings = await App.api('/holdings') || [];
+    App.renderHoldings();
+  } catch (e) {
+    App.state.holdings = [];
+  }
+};
+
+App.renderHoldings = function() {
+  const tbody = document.getElementById('holdingsBody');
+  if (!tbody) return;
+  const h = App.state.holdings || [];
+  if (h.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="7" class="empty-state">No holdings — add your stock positions</td></tr>';
+    return;
+  }
+  tbody.innerHTML = h.map(pos => `
+    <tr>
+      <td><strong>${esc(pos.symbol)}</strong></td>
+      <td>${pos.quantity}</td>
+      <td>$${Number(pos.avg_cost).toFixed(2)}</td>
+      <td>$${(pos.quantity * pos.avg_cost).toFixed(2)}</td>
+      <td>${Math.floor(pos.quantity / 100)}</td>
+      <td>${esc(pos.notes || '')}</td>
+      <td>
+        <button class="btn btn-sm" onclick="App.editHolding('${pos.id}')">Edit</button>
+        <button class="btn btn-sm" onclick="App.deleteHolding('${pos.id}')">Del</button>
+      </td>
+    </tr>
+  `).join('');
+};
+
+App.addHolding = function() {
+  App.openModal(`
+    <h3 style="margin-bottom: 16px">Add Stock Holding</h3>
+    <form onsubmit="App.submitHolding(event)" style="display:flex;flex-direction:column;gap:12px">
+      <div class="form-row">
+        <label>Symbol</label>
+        <input type="text" id="holdSymbol" class="input" placeholder="RIVN" required style="text-transform:uppercase">
+      </div>
+      <div class="form-row two-col">
+        <div>
+          <label>Shares</label>
+          <input type="number" id="holdQty" class="input" placeholder="100" step="1" required>
+        </div>
+        <div>
+          <label>Avg Cost ($)</label>
+          <input type="number" id="holdCost" class="input" placeholder="12.50" step="0.01" required>
+        </div>
+      </div>
+      <div class="form-row">
+        <label>Notes (optional)</label>
+        <input type="text" id="holdNotes" class="input" placeholder="Wheeling since Jan 2026...">
+      </div>
+      <button type="submit" class="btn btn-primary btn-lg">Add Holding</button>
+    </form>
+  `);
+};
+
+App.submitHolding = async function(e) {
+  e.preventDefault();
+  try {
+    await App.api('/holdings', { method: 'POST', body: {
+      symbol: document.getElementById('holdSymbol').value.toUpperCase(),
+      quantity: parseFloat(document.getElementById('holdQty').value),
+      avg_cost: parseFloat(document.getElementById('holdCost').value),
+      notes: document.getElementById('holdNotes').value,
+    }});
+    App.closeModal();
+    App.flash('Holding added');
+    App.loadHoldings();
+  } catch (err) {
+    App.flash('Error: ' + err.message, 'error');
+  }
+};
+
+App.editHolding = function(id) {
+  const h = (App.state.holdings || []).find(x => x.id === id);
+  if (!h) return;
+  App.openModal(`
+    <h3 style="margin-bottom: 16px">Edit ${esc(h.symbol)} Holding</h3>
+    <form onsubmit="App.submitEditHolding(event, '${id}')" style="display:flex;flex-direction:column;gap:12px">
+      <div class="form-row two-col">
+        <div>
+          <label>Shares</label>
+          <input type="number" id="editHoldQty" class="input" value="${h.quantity}" step="1" required>
+        </div>
+        <div>
+          <label>Avg Cost ($)</label>
+          <input type="number" id="editHoldCost" class="input" value="${h.avg_cost}" step="0.01" required>
+        </div>
+      </div>
+      <div class="form-row">
+        <label>Notes</label>
+        <input type="text" id="editHoldNotes" class="input" value="${esc(h.notes || '')}">
+      </div>
+      <button type="submit" class="btn btn-primary btn-lg">Save</button>
+    </form>
+  `);
+};
+
+App.submitEditHolding = async function(e, id) {
+  e.preventDefault();
+  const h = (App.state.holdings || []).find(x => x.id === id);
+  if (!h) return;
+  try {
+    await App.api(`/holdings/${id}`, { method: 'PUT', body: {
+      symbol: h.symbol,
+      quantity: parseFloat(document.getElementById('editHoldQty').value),
+      avg_cost: parseFloat(document.getElementById('editHoldCost').value),
+      notes: document.getElementById('editHoldNotes').value,
+    }});
+    App.closeModal();
+    App.flash('Holding updated');
+    App.loadHoldings();
+  } catch (err) {
+    App.flash('Error: ' + err.message, 'error');
+  }
+};
+
+App.deleteHolding = async function(id) {
+  if (!confirm('Delete this holding?')) return;
+  try {
+    await fetch(`/api/v1/holdings/${id}`, { method: 'DELETE' });
+    App.flash('Holding deleted');
+    App.loadHoldings();
+  } catch (err) {
+    App.flash('Error: ' + err.message, 'error');
+  }
+};
+
+// ─── Wheel Analysis ──────────────────────────────────────
+
+App.runWheelAnalysis = async function() {
+  const el = document.getElementById('wheelAnalysis');
+  el.innerHTML = '<div class="empty-state">Loading wheel analysis...</div>';
+  try {
+    const data = await App.api('/wheel-analysis');
+    if (!data || data.length === 0) {
+      el.innerHTML = '<div class="empty-state">No holdings to analyze. Add your stock positions first.</div>';
+      return;
+    }
+    el.innerHTML = data.map(a => `
+      <div class="wheel-symbol">
+        <div class="wheel-header">
+          <h3>${esc(a.symbol)}</h3>
+          <span class="wheel-info">${a.quantity} shares @ $${Number(a.avg_cost).toFixed(2)} | ${Math.floor(a.quantity/100)} lots</span>
+        </div>
+
+        ${a.covered_calls && a.covered_calls.length > 0 ? `
+          <div class="wheel-section">
+            <h4>Covered Calls (sell to collect premium)</h4>
+            <div class="table-wrap">
+              <table class="data-table">
+                <thead>
+                  <tr><th>Exp</th><th>Strike</th><th>Bid</th><th>Ask</th><th>Mark</th><th>DTE</th><th>$/Day</th><th>Ann %</th><th>Vol</th><th>OI</th></tr>
+                </thead>
+                <tbody>
+                  ${a.covered_calls.map(o => `
+                    <tr>
+                      <td>${o.expiration}</td>
+                      <td>$${o.strike.toFixed(2)}</td>
+                      <td>$${o.bid.toFixed(2)}</td>
+                      <td>$${o.ask.toFixed(2)}</td>
+                      <td>$${o.mark.toFixed(2)}</td>
+                      <td>${o.dte}</td>
+                      <td class="positive">$${o.premium_per_day.toFixed(3)}</td>
+                      <td class="positive">${o.annual_return_pct.toFixed(1)}%</td>
+                      <td>${o.volume}</td>
+                      <td>${o.open_interest}</td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ` : '<div class="wheel-section"><h4>Covered Calls</h4><div class="empty-state">Need 100+ shares for covered calls</div></div>'}
+
+        ${a.cash_secured_puts && a.cash_secured_puts.length > 0 ? `
+          <div class="wheel-section">
+            <h4>Cash-Secured Puts (sell to buy lower / collect premium)</h4>
+            <div class="table-wrap">
+              <table class="data-table">
+                <thead>
+                  <tr><th>Exp</th><th>Strike</th><th>Bid</th><th>Ask</th><th>Mark</th><th>DTE</th><th>$/Day</th><th>Ann %</th><th>Vol</th><th>OI</th></tr>
+                </thead>
+                <tbody>
+                  ${a.cash_secured_puts.map(o => `
+                    <tr>
+                      <td>${o.expiration}</td>
+                      <td>$${o.strike.toFixed(2)}</td>
+                      <td>$${o.bid.toFixed(2)}</td>
+                      <td>$${o.ask.toFixed(2)}</td>
+                      <td>$${o.mark.toFixed(2)}</td>
+                      <td>${o.dte}</td>
+                      <td class="positive">$${o.premium_per_day.toFixed(3)}</td>
+                      <td class="positive">${o.annual_return_pct.toFixed(1)}%</td>
+                      <td>${o.volume}</td>
+                      <td>${o.open_interest}</td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ` : '<div class="wheel-section"><h4>Cash-Secured Puts</h4><div class="empty-state">No put data available</div></div>'}
+      </div>
+    `).join('');
+  } catch (err) {
+    el.innerHTML = `<div class="empty-state">Error: ${esc(err.message)}</div>`;
+  }
 };
 
 // ─── Helpers ──────────────────────────────────────────────
