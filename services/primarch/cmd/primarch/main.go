@@ -30,6 +30,7 @@ import (
 	"time"
 
 	"github.com/guaranaja/astartes-primaris/services/primarch/internal/api"
+	"github.com/guaranaja/astartes-primaris/services/primarch/internal/cfo"
 	"github.com/guaranaja/astartes-primaris/services/primarch/internal/config"
 	"github.com/guaranaja/astartes-primaris/services/primarch/internal/domain"
 	"github.com/guaranaja/astartes-primaris/services/primarch/internal/runner"
@@ -88,6 +89,25 @@ func main() {
 
 	sched := scheduler.New(dataStore, runnerMgr, eventSink, logger)
 	srv := api.NewServerWithHub(dataStore, sched, logger, hub)
+
+	// Initialize CFO integration (Firefly III + Monarch Money)
+	{
+		var fireflyClient *cfo.FireflyClient
+		var monarchClient *cfo.MonarchClient
+
+		if cfg.CFOEngineURL != "" && cfg.CFOEngineToken != "" {
+			fireflyClient = cfo.NewFireflyClient(cfg.CFOEngineURL, cfg.CFOEngineToken)
+			fmt.Printf("  CFO Engine:     %s\n", cfg.CFOEngineURL)
+		}
+		if cfg.MonarchToken != "" {
+			monarchClient = cfo.NewMonarchClient(cfg.MonarchToken)
+			fmt.Println("  Monarch Money:  connected")
+		}
+		if fireflyClient != nil || monarchClient != nil {
+			councilCFO := cfo.NewCouncilCFO(fireflyClient, monarchClient, logger)
+			srv.SetCFO(councilCFO)
+		}
+	}
 
 	// Seed initial data
 	if cfg.Seed {

@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/guaranaja/astartes-primaris/services/primarch/internal/cfo"
 	"github.com/guaranaja/astartes-primaris/services/primarch/internal/domain"
 	"github.com/guaranaja/astartes-primaris/services/primarch/internal/scheduler"
 	"github.com/guaranaja/astartes-primaris/services/primarch/internal/store"
@@ -21,6 +22,7 @@ type Server struct {
 	logger    *slog.Logger
 	hub       *WSHub
 	mux       *http.ServeMux
+	cfo       *cfo.CouncilCFO
 }
 
 // NewServer creates the API server with a new WebSocket hub.
@@ -107,6 +109,14 @@ func (s *Server) routes() {
 
 	// Council
 	s.registerCouncilRoutes()
+
+	// CFO (unified finance)
+	s.registerCFORoutes()
+}
+
+// SetCFO configures the unified finance integration.
+func (s *Server) SetCFO(c *cfo.CouncilCFO) {
+	s.cfo = c
 }
 
 // ─── Health & Status ────────────────────────────────────────
