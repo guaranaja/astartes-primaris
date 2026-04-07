@@ -114,7 +114,7 @@ steps:
       - --port=8401
       - --allow-unauthenticated
       - --set-env-vars=ENVIRONMENT=${_ENVIRONMENT},ADMIN_EMAILS=dave@janzend.com
-      - --set-secrets=GOOGLE_CLIENT_ID=google-client-id:latest,PRIMARCH_AUTH_PASSWORD=primarch-auth-password:latest,ALPACA_API_KEY=alpaca-api-key:latest,ALPACA_SECRET_KEY=alpaca-secret-key:latest,CLAUDE_API_KEY=claude-api-key:latest
+      - --set-secrets=GOOGLE_CLIENT_ID=google-client-id:latest,PRIMARCH_AUTH_PASSWORD=primarch-auth-password:latest,ALPACA_API_KEY=alpaca-api-key:latest,ALPACA_SECRET_KEY=alpaca-secret-key:latest,CLAUDE_API_KEY=claude-api-key:latest,PRIMARCH_SERVICE_TOKEN=primarch-service-token:latest
       - --quiet
     waitFor: [push-primarch]
 

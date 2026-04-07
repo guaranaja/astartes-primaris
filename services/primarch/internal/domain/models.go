@@ -169,6 +169,121 @@ type SystemEvent struct {
 }
 
 // ═══════════════════════════════════════════════════════════
+// ENGINE PROTOCOL — Service-to-Service Communication
+// ═══════════════════════════════════════════════════════════
+
+// CommandType identifies what action an engine should take.
+type CommandType string
+
+const (
+	CmdKillSwitch    CommandType = "kill_switch"
+	CmdDisableMarine CommandType = "disable_marine"
+	CmdEnableMarine  CommandType = "enable_marine"
+)
+
+// CommandStatus tracks a command through its lifecycle.
+type CommandStatus string
+
+const (
+	CommandPending   CommandStatus = "pending"
+	CommandAcked     CommandStatus = "acked"
+	CommandCompleted CommandStatus = "completed"
+	CommandFailed    CommandStatus = "failed"
+)
+
+// Command is a directive from Primarch to an engine.
+type Command struct {
+	ID        string            `json:"id"`
+	EngineID  string            `json:"engine_id"`
+	Command   CommandType       `json:"command"`
+	Scope     string            `json:"scope"`
+	Params    map[string]string `json:"params"`
+	Status    CommandStatus     `json:"status"`
+	Error     string            `json:"error,omitempty"`
+	CreatedAt time.Time         `json:"created_at"`
+	UpdatedAt time.Time         `json:"updated_at"`
+}
+
+// ─── Engine Register Request/Response ───────────────────────
+
+// EngineRegisterRequest is sent by an engine on startup.
+type EngineRegisterRequest struct {
+	EngineID   string                    `json:"engine_id"`
+	EngineType string                    `json:"engine_type"`
+	Version    string                    `json:"version"`
+	Fortresses []EngineRegisterFortress  `json:"fortresses"`
+}
+
+// EngineRegisterFortress is a fortress in the register payload.
+type EngineRegisterFortress struct {
+	ID         string                   `json:"id"`
+	Name       string                   `json:"name"`
+	AssetClass string                   `json:"asset_class"`
+	Companies  []EngineRegisterCompany  `json:"companies"`
+}
+
+// EngineRegisterCompany is a company in the register payload.
+type EngineRegisterCompany struct {
+	ID      string                  `json:"id"`
+	Name    string                  `json:"name"`
+	Marines []EngineRegisterMarine  `json:"marines"`
+}
+
+// EngineRegisterMarine is a marine in the register payload.
+type EngineRegisterMarine struct {
+	ID              string            `json:"id"`
+	Name            string            `json:"name"`
+	StrategyName    string            `json:"strategy_name"`
+	StrategyVersion string            `json:"strategy_version"`
+	BrokerAccountID string            `json:"broker_account_id"`
+	Status          MarineStatus      `json:"status"`
+	Schedule        ScheduleConfig    `json:"schedule"`
+	Parameters      map[string]string `json:"parameters,omitempty"`
+}
+
+// EngineRegisterResponse is returned after a register call.
+type EngineRegisterResponse struct {
+	EngineID          string `json:"engine_id"`
+	FortressesCreated int    `json:"fortresses_created"`
+	FortressesUpdated int    `json:"fortresses_updated"`
+	CompaniesCreated  int    `json:"companies_created"`
+	CompaniesUpdated  int    `json:"companies_updated"`
+	MarinesCreated    int    `json:"marines_created"`
+	MarinesUpdated    int    `json:"marines_updated"`
+}
+
+// ─── Engine Heartbeat Request/Response ──────────────────────
+
+// EngineHeartbeatRequest is sent periodically by an engine.
+type EngineHeartbeatRequest struct {
+	EngineID string                   `json:"engine_id"`
+	Status   string                   `json:"status"`
+	Uptime   string                   `json:"uptime"`
+	Marines  []EngineHeartbeatMarine  `json:"marines"`
+}
+
+// EngineHeartbeatMarine is a marine status update in the heartbeat.
+type EngineHeartbeatMarine struct {
+	MarineID    string            `json:"marine_id"`
+	Status      MarineStatus      `json:"status"`
+	DailyPnL    float64           `json:"daily_pnl"`
+	CyclesToday int               `json:"cycles_today"`
+	Parameters  map[string]string `json:"parameters,omitempty"`
+}
+
+// EngineHeartbeatResponse is returned after a heartbeat call.
+type EngineHeartbeatResponse struct {
+	Status   string    `json:"status"`
+	Commands []Command `json:"commands,omitempty"`
+}
+
+// EngineCommandCompleteRequest acknowledges a command.
+type EngineCommandCompleteRequest struct {
+	Status string `json:"status"` // "completed" or "failed"
+	Error  string `json:"error,omitempty"`
+}
+
+// ═══════════════════════════════════════════════════════════
 // HOLDINGS — Manual Stock Positions for Wheel Strategy
 // ═══════════════════════════════════════════════════════════
 

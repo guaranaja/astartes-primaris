@@ -13,6 +13,9 @@ type Config struct {
 	Seed     bool   // Seed Fortress Primus on startup
 	DBUrl    string // PostgreSQL connection string (empty = in-memory store)
 
+	// Engine protocol
+	ServiceToken string // Bearer token for engine-to-Primarch auth
+
 	// CFO Engine (Firefly III) integration
 	CFOEngineURL   string // Base URL, e.g. https://cfo-engine-dev-xxx.run.app
 	CFOEngineToken string // Firefly III personal access token
@@ -28,6 +31,7 @@ func Load() *Config {
 		LogLevel:       envStr("PRIMARCH_LOG_LEVEL", "info"),
 		Seed:           envBool("PRIMARCH_SEED", true),
 		DBUrl:          envStr("PRIMARCH_DB_URL", ""),
+		ServiceToken:   envStr("PRIMARCH_SERVICE_TOKEN", ""),
 		CFOEngineURL:   envStr("CFO_ENGINE_URL", ""),
 		CFOEngineToken: envStr("CFO_ENGINE_TOKEN", ""),
 		MonarchToken:   envStr("MONARCH_TOKEN", ""),

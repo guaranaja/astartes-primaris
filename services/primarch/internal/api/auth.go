@@ -19,6 +19,7 @@ var (
 
 	googleClientID = os.Getenv("GOOGLE_CLIENT_ID")
 	adminEmails    = parseAdminEmails(os.Getenv("ADMIN_EMAILS"))
+	serviceToken   = os.Getenv("PRIMARCH_SERVICE_TOKEN")
 )
 
 const sessionTTL = 24 * time.Hour
@@ -45,6 +46,14 @@ func validSession(token string) bool {
 	defer sessionsMu.RUnlock()
 	exp, ok := sessions[token]
 	return ok && time.Now().Before(exp)
+}
+
+func validBearerToken(r *http.Request) bool {
+	if serviceToken == "" {
+		return false
+	}
+	auth := r.Header.Get("Authorization")
+	return strings.HasPrefix(auth, "Bearer ") && strings.TrimPrefix(auth, "Bearer ") == serviceToken
 }
 
 func createSession() string {
@@ -157,6 +166,15 @@ func authMiddleware(next http.Handler) http.Handler {
 		// Static files (served by Aurum, but in case Primarch serves them)
 		if path == "/" || path == "/login" || path == "/app.js" || path == "/style.css" || path == "/favicon.ico" {
 			next.ServeHTTP(w, r)
+			return
+		}
+		// Check bearer token for engine protocol routes
+		if strings.HasPrefix(path, "/api/v1/engine/") {
+			if validBearerToken(r) {
+				next.ServeHTTP(w, r)
+				return
+			}
+			writeError(w, http.StatusUnauthorized, "invalid service token")
 			return
 		}
 		// Check session cookie

@@ -83,4 +83,10 @@ type DataStore interface {
 	CreateHolding(h *domain.Holding) error
 	UpdateHolding(h *domain.Holding) error
 	DeleteHolding(id string) error
+
+	// ─── Commands (Engine Protocol) ────────────────────────
+	CreateCommand(c *domain.Command) error
+	GetCommand(id string) (*domain.Command, error)
+	ListPendingCommands(engineID string) []domain.Command
+	UpdateCommand(c *domain.Command) error
 }

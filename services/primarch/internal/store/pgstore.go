@@ -1074,6 +1074,71 @@ func (s *PGStore) DeleteHolding(id string) error {
 	return nil
 }
 
+// ─── Commands (Engine Protocol) ────────────────────────────
+
+func (s *PGStore) CreateCommand(c *domain.Command) error {
+	now := time.Now()
+	c.CreatedAt = now
+	c.UpdatedAt = now
+	params, _ := json.Marshal(c.Params)
+	_, err := s.db.Exec(`INSERT INTO commands (id, engine_id, command, scope, params, status, error_message, created_at, updated_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+		c.ID, c.EngineID, c.Command, c.Scope, params, c.Status, nullStr(c.Error), c.CreatedAt, c.UpdatedAt)
+	return err
+}
+
+func (s *PGStore) GetCommand(id string) (*domain.Command, error) {
+	var c domain.Command
+	var params []byte
+	var errMsg sql.NullString
+	err := s.db.QueryRow(`SELECT id, engine_id, command, scope, params, status, error_message, created_at, updated_at FROM commands WHERE id=$1`, id).
+		Scan(&c.ID, &c.EngineID, &c.Command, &c.Scope, &params, &c.Status, &errMsg, &c.CreatedAt, &c.UpdatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("command %q not found", id)
+	}
+	json.Unmarshal(params, &c.Params)
+	c.Error = errMsg.String
+	return &c, nil
+}
+
+func (s *PGStore) ListPendingCommands(engineID string) []domain.Command {
+	rows, err := s.db.Query(`SELECT id, engine_id, command, scope, params, status, error_message, created_at, updated_at
+		FROM commands WHERE engine_id=$1 AND status IN ('pending','acked') ORDER BY created_at`, engineID)
+	if err != nil {
+		s.logger.Error("list pending commands", "error", err)
+		return nil
+	}
+	defer rows.Close()
+
+	var out []domain.Command
+	for rows.Next() {
+		var c domain.Command
+		var params []byte
+		var errMsg sql.NullString
+		if err := rows.Scan(&c.ID, &c.EngineID, &c.Command, &c.Scope, &params, &c.Status, &errMsg, &c.CreatedAt, &c.UpdatedAt); err != nil {
+			s.logger.Error("scan command", "error", err)
+			continue
+		}
+		json.Unmarshal(params, &c.Params)
+		c.Error = errMsg.String
+		out = append(out, c)
+	}
+	return out
+}
+
+func (s *PGStore) UpdateCommand(c *domain.Command) error {
+	c.UpdatedAt = time.Now()
+	res, err := s.db.Exec(`UPDATE commands SET status=$2, error_message=$3, updated_at=$4 WHERE id=$1`,
+		c.ID, c.Status, nullStr(c.Error), c.UpdatedAt)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return fmt.Errorf("command %q not found", c.ID)
+	}
+	return nil
+}
+
 func nullStr(s string) interface{} {
 	if s == "" {
 		return nil

@@ -29,6 +29,7 @@ type Store struct {
 	expenses      map[string]*domain.Expense
 	payments      []domain.Payment
 	holdings      map[string]*domain.Holding
+	commands      map[string]*domain.Command
 }
 
 // New creates a new empty store.
@@ -44,6 +45,7 @@ func New() *Store {
 		goals:       make(map[string]*domain.Goal),
 		expenses:    make(map[string]*domain.Expense),
 		holdings:    make(map[string]*domain.Holding),
+		commands:    make(map[string]*domain.Command),
 	}
 }
 
@@ -400,5 +402,56 @@ func (s *Store) DeleteHolding(id string) error {
 		return fmt.Errorf("holding %q not found", id)
 	}
 	delete(s.holdings, id)
+	return nil
+}
+
+// ─── Commands (Engine Protocol) ────────────────────────────
+
+func (s *Store) CreateCommand(c *domain.Command) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, exists := s.commands[c.ID]; exists {
+		return fmt.Errorf("command %q already exists", c.ID)
+	}
+	now := time.Now()
+	c.CreatedAt = now
+	c.UpdatedAt = now
+	cp := *c
+	s.commands[c.ID] = &cp
+	return nil
+}
+
+func (s *Store) GetCommand(id string) (*domain.Command, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	c, ok := s.commands[id]
+	if !ok {
+		return nil, fmt.Errorf("command %q not found", id)
+	}
+	cp := *c
+	return &cp, nil
+}
+
+func (s *Store) ListPendingCommands(engineID string) []domain.Command {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var out []domain.Command
+	for _, c := range s.commands {
+		if c.EngineID == engineID && (c.Status == domain.CommandPending || c.Status == domain.CommandAcked) {
+			out = append(out, *c)
+		}
+	}
+	return out
+}
+
+func (s *Store) UpdateCommand(c *domain.Command) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, exists := s.commands[c.ID]; !exists {
+		return fmt.Errorf("command %q not found", c.ID)
+	}
+	c.UpdatedAt = time.Now()
+	cp := *c
+	s.commands[c.ID] = &cp
 	return nil
 }

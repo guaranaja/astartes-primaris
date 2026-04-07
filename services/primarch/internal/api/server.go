@@ -107,6 +107,11 @@ func (s *Server) routes() {
 	// Wheel Analysis
 	s.mux.HandleFunc("GET /api/v1/wheel-analysis", s.handleWheelAnalysis)
 
+	// Engine Protocol (service-to-service)
+	s.mux.HandleFunc("POST /api/v1/engine/register", s.handleEngineRegister)
+	s.mux.HandleFunc("POST /api/v1/engine/heartbeat", s.handleEngineHeartbeat)
+	s.mux.HandleFunc("POST /api/v1/engine/commands/{id}/complete", s.handleEngineCommandComplete)
+
 	// Council
 	s.registerCouncilRoutes()
 
@@ -428,11 +433,55 @@ func (s *Server) handleKillSwitch(w http.ResponseWriter, r *http.Request) {
 			s.scheduler.UnscheduleMarine(m.ID)
 		}
 	}
+	// Queue kill_switch command for engines that manage this scope
+	engineIDs := s.engineIDsForScope(scope)
+	for _, eid := range engineIDs {
+		s.store.CreateCommand(&domain.Command{
+			ID:       generateCommandID(),
+			EngineID: eid,
+			Command:  domain.CmdKillSwitch,
+			Scope:    scope,
+			Status:   domain.CommandPending,
+		})
+	}
 	s.logger.Warn("KILL SWITCH ACTIVATED", "scope", scope)
 	writeJSON(w, http.StatusOK, map[string]string{
 		"status": "kill_switch_active",
 		"scope":  scope,
 	})
+}
+
+// engineIDsForScope finds engine IDs that own resources matching the scope.
+func (s *Server) engineIDsForScope(scope string) []string {
+	seen := map[string]bool{}
+	if scope == "imperium" {
+		// All engines — check fortress metadata
+		for _, f := range s.store.ListFortresses() {
+			if eid, ok := f.Metadata["engine_id"]; ok {
+				seen[eid] = true
+			}
+		}
+	} else {
+		// Try fortress
+		if f, err := s.store.GetFortress(scope); err == nil {
+			if eid, ok := f.Metadata["engine_id"]; ok {
+				seen[eid] = true
+			}
+		}
+		// For company/marine scopes, walk up to fortress
+		if c, err := s.store.GetCompany(scope); err == nil {
+			if f, err := s.store.GetFortress(c.FortressID); err == nil {
+				if eid, ok := f.Metadata["engine_id"]; ok {
+					seen[eid] = true
+				}
+			}
+		}
+	}
+	out := make([]string, 0, len(seen))
+	for eid := range seen {
+		out = append(out, eid)
+	}
+	return out
 }
 
 // ─── Helpers ────────────────────────────────────────────────
