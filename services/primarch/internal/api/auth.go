@@ -49,11 +49,12 @@ func validSession(token string) bool {
 }
 
 func validBearerToken(r *http.Request) bool {
-	if serviceToken == "" {
+	token := strings.TrimSpace(serviceToken)
+	if token == "" {
 		return false
 	}
 	auth := r.Header.Get("Authorization")
-	return strings.HasPrefix(auth, "Bearer ") && strings.TrimPrefix(auth, "Bearer ") == serviceToken
+	return strings.HasPrefix(auth, "Bearer ") && strings.TrimSpace(strings.TrimPrefix(auth, "Bearer ")) == token
 }
 
 func createSession() string {
