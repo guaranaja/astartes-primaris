@@ -89,6 +89,11 @@ if [[ "$TARGET" == "all" || "$TARGET" == "forge" ]]; then
   deploy_job "forge"
 fi
 
+if [[ "$TARGET" == "all" || "$TARGET" == "registry" ]]; then
+  build_and_push "registry" "${ROOT}/services/registry"
+  deploy_service "registry" 8701
+fi
+
 echo ""
 echo "  Deployment complete."
 
@@ -100,6 +105,11 @@ fi
 if [[ "$TARGET" == "all" || "$TARGET" == "primarch" ]]; then
   PRIMARCH_URL=$(gcloud run services describe "primarch-${ENV}" --region="${REGION}" --format='value(status.url)' 2>/dev/null || echo "unknown")
   echo "  Primarch API:    ${PRIMARCH_URL}"
+fi
+
+if [[ "$TARGET" == "all" || "$TARGET" == "registry" ]]; then
+  REGISTRY_URL=$(gcloud run services describe "registry-${ENV}" --region="${REGION}" --format='value(status.url)' 2>/dev/null || echo "unknown")
+  echo "  Registry API:    ${REGISTRY_URL}"
 fi
 
 echo ""

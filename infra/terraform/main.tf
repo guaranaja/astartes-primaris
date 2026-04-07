@@ -331,6 +331,121 @@ resource "google_cloud_run_v2_job" "forge" {
   depends_on = [google_project_service.apis]
 }
 
+# ─── Registry (Cloud Run Service — Strategy Marketplace) ─────
+
+resource "google_storage_bucket" "registry_bundles" {
+  name          = "${var.project_id}-registry-bundles"
+  location      = var.region
+  force_destroy = var.environment != "prod"
+
+  versioning {
+    enabled = true
+  }
+
+  lifecycle_rule {
+    condition {
+      num_newer_versions = 30
+    }
+    action {
+      type = "Delete"
+    }
+  }
+
+  labels = local.labels
+}
+
+resource "google_secret_manager_secret" "registry_master_token" {
+  secret_id = "registry-master-token-${var.environment}"
+  replication { auto {} }
+  depends_on = [google_project_service.apis]
+}
+
+resource "google_secret_manager_secret" "registry_signing_key" {
+  secret_id = "registry-signing-key-${var.environment}"
+  replication { auto {} }
+  depends_on = [google_project_service.apis]
+}
+
+resource "google_cloud_run_v2_service" "registry" {
+  name     = "registry-${var.environment}"
+  location = var.region
+  labels   = local.labels
+
+  template {
+    labels = local.labels
+
+    containers {
+      image = "${local.ar_repo}/registry:latest"
+
+      ports {
+        container_port = 8701
+      }
+
+      env {
+        name  = "ENVIRONMENT"
+        value = var.environment
+      }
+
+      env {
+        name  = "REGISTRY_PORT"
+        value = "8701"
+      }
+
+      env {
+        name  = "DATABASE_URL"
+        value = "postgres://librarium:${random_password.db_password.result}@/${google_sql_database.librarium_db.name}?host=/cloudsql/${google_sql_database_instance.librarium.connection_name}&sslmode=disable"
+      }
+
+      env {
+        name  = "REGISTRY_GCS_BUCKET"
+        value = google_storage_bucket.registry_bundles.name
+      }
+
+      resources {
+        limits = {
+          cpu    = var.environment == "prod" ? "2" : "1"
+          memory = var.environment == "prod" ? "1Gi" : "512Mi"
+        }
+      }
+
+      startup_probe {
+        http_get {
+          path = "/healthz"
+        }
+        initial_delay_seconds = 5
+        period_seconds        = 10
+        failure_threshold     = 3
+      }
+
+      liveness_probe {
+        http_get {
+          path = "/healthz"
+        }
+        period_seconds = 30
+      }
+    }
+
+    scaling {
+      min_instance_count = var.environment == "prod" ? 1 : 0
+      max_instance_count = var.environment == "prod" ? 5 : 2
+    }
+
+    vpc_access {
+      connector = google_vpc_access_connector.connector.id
+      egress    = "PRIVATE_RANGES_ONLY"
+    }
+
+    volumes {
+      name = "cloudsql"
+      cloud_sql_instance {
+        instances = [google_sql_database_instance.librarium.connection_name]
+      }
+    }
+  }
+
+  depends_on = [google_project_service.apis]
+}
+
 # ─── Outputs ─────────────────────────────────────────────────
 
 output "aurum_url" {
@@ -346,6 +461,16 @@ output "primarch_url" {
 output "db_connection_name" {
   description = "Cloud SQL connection name"
   value       = google_sql_database_instance.librarium.connection_name
+}
+
+output "registry_url" {
+  description = "Registry API URL"
+  value       = google_cloud_run_v2_service.registry.uri
+}
+
+output "registry_bundles_bucket" {
+  description = "GCS bucket for strategy bundles"
+  value       = google_storage_bucket.registry_bundles.name
 }
 
 output "environment" {

@@ -105,6 +105,37 @@ services:
     depends_on:
       - apothecary-prometheus
 
+  # ─── REGISTRY (Strategy Marketplace) ─────────────────────
+  registry:
+    build: ./services/registry
+    container_name: registry
+    environment:
+      REGISTRY_PORT: "8701"
+      REGISTRY_LOG_LEVEL: ${REGISTRY_LOG_LEVEL:-info}
+      REGISTRY_MASTER_TOKEN: ${REGISTRY_MASTER_TOKEN:-}
+      REGISTRY_GCS_BUCKET: ${REGISTRY_GCS_BUCKET:-}
+      DATABASE_URL: postgresql://librarium:${LIBRARIUM_DB_PASSWORD:-dev_password}@librarium-timescale:5432/librarium
+      DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN:-}
+      DISCORD_CHANNEL_MARKETPLACE: ${DISCORD_CHANNEL_MARKETPLACE:-}
+      DISCORD_CHANNEL_MARKETPLACE_ALERTS: ${DISCORD_CHANNEL_MARKETPLACE_ALERTS:-}
+      PNL_REPORT_HMAC_SECRET: ${PNL_REPORT_HMAC_SECRET:-}
+      EXPECTED_CLIENT_HASHES: ${EXPECTED_CLIENT_HASHES:-}
+      STRIPE_ENABLED: ${STRIPE_ENABLED:-false}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+    ports:
+      - "8701:8701"
+    volumes:
+      - registry-bundles:/app/data/published_bundles
+    depends_on:
+      librarium-timescale:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8701/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
   # ─── IRON HALO (Security) — Dev mode vault ──────────────
   iron-halo:
     image: hashicorp/vault:latest
@@ -123,3 +154,4 @@ volumes:
   vox-data:
   apothecary-prometheus-data:
   apothecary-grafana-data:
+  registry-bundles:

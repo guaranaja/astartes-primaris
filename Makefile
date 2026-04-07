@@ -50,7 +50,10 @@ build-marine-base: ## Build Marine base image
 build-auspex: ## Build Auspex market data collector
 	docker build -t astartes/auspex:latest services/auspex/
 
-build-all: build-primarch build-aurum build-auspex build-forge build-marine-base ## Build all containers
+build-registry: ## Build Registry marketplace container
+	docker build -t astartes/registry:latest services/registry/
+
+build-all: build-primarch build-aurum build-auspex build-forge build-marine-base build-registry ## Build all containers
 
 # ─── Database ───────────────────────────────────────────────
 
@@ -67,6 +70,7 @@ db-migrate: ## Run Librarium migrations
 	@echo "Running migrations..."
 	docker compose exec librarium-timescale psql -U librarium -d librarium -f /docker-entrypoint-initdb.d/001_initial_schema.sql
 	docker compose exec librarium-timescale psql -U librarium -d librarium -f /docker-entrypoint-initdb.d/002_council_schema.sql
+	docker compose exec librarium-timescale psql -U librarium -d librarium -f /docker-entrypoint-initdb.d/005_registry_marketplace.sql
 
 db-shell: ## Open psql shell to Librarium
 	docker compose exec librarium-timescale psql -U librarium -d librarium
@@ -78,6 +82,23 @@ redis-shell: ## Open Redis CLI
 
 forge-submit: ## Submit a backtest job (usage: make forge-submit STRATEGY=es-momentum)
 	@echo "Submitting forge job for $(STRATEGY)..."
+
+# ─── Registry (Marketplace) ────────────────────────────────
+
+registry-logs: ## Tail Registry logs
+	docker compose logs -f registry
+
+registry-health: ## Check Registry health
+	@curl -s http://localhost:8701/healthz | python3 -m json.tool
+
+registry-clients: ## List registered clients (requires REGISTRY_MASTER_TOKEN)
+	@curl -s -H "Authorization: Bearer $${REGISTRY_MASTER_TOKEN}" http://localhost:8701/api/v1/admin/clients | python3 -m json.tool
+
+registry-billing: ## View billing overview (requires REGISTRY_MASTER_TOKEN)
+	@curl -s -H "Authorization: Bearer $${REGISTRY_MASTER_TOKEN}" http://localhost:8701/api/v1/admin/billing/overview | python3 -m json.tool
+
+registry-integrity: ## Check client integrity status (requires REGISTRY_MASTER_TOKEN)
+	@curl -s -H "Authorization: Bearer $${REGISTRY_MASTER_TOKEN}" http://localhost:8701/api/v1/admin/integrity | python3 -m json.tool
 
 # ─── Monitoring ─────────────────────────────────────────────
 
@@ -103,6 +124,9 @@ deploy-aurum: ## Deploy Aurum to Cloud Run
 
 deploy-forge: ## Deploy Forge to Cloud Run
 	./infra/deploy.sh forge
+
+deploy-registry: ## Deploy Registry marketplace to Cloud Run
+	./infra/deploy.sh registry
 
 infra-init: ## Initialize Terraform for GCP
 	cd infra/terraform && terraform init
