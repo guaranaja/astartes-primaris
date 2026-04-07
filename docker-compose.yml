@@ -136,6 +136,32 @@ services:
       timeout: 5s
       retries: 3
 
+  # ─── CFO ENGINE (Personal Finance — Firefly III) ─────────
+  # Shares Librarium's PostgreSQL — requires cfo_engine DB + cfo user.
+  # Run once: docker exec librarium-timescale psql -U librarium -c "CREATE USER cfo WITH PASSWORD 'dev_password'; CREATE DATABASE cfo_engine OWNER cfo;"
+  cfo-engine:
+    image: fireflyiii/core:latest
+    container_name: cfo-engine
+    environment:
+      APP_KEY: ${CFO_APP_KEY:-CHANGEME_32_CHAR_RANDOM_STRING00}
+      DB_CONNECTION: pgsql
+      DB_HOST: librarium-timescale
+      DB_PORT: "5432"
+      DB_DATABASE: cfo_engine
+      DB_USERNAME: cfo
+      DB_PASSWORD: ${CFO_DB_PASSWORD:-dev_password}
+      TRUSTED_PROXIES: "**"
+      APP_URL: ${CFO_URL:-http://localhost:8080}
+      TZ: America/New_York
+    ports:
+      - "8080:8080"
+    volumes:
+      - cfo-engine-upload:/var/www/html/storage/upload
+    depends_on:
+      librarium-timescale:
+        condition: service_healthy
+    restart: unless-stopped
+
   # ─── IRON HALO (Security) — Dev mode vault ──────────────
   iron-halo:
     image: hashicorp/vault:latest
@@ -155,3 +181,4 @@ volumes:
   apothecary-prometheus-data:
   apothecary-grafana-data:
   registry-bundles:
+  cfo-engine-upload:
