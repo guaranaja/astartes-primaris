@@ -31,8 +31,31 @@ const App = {
       await this.api('/auth-check');
     } catch (e) {
       document.getElementById('loginOverlay').classList.remove('hidden');
+      this.initGoogleSignIn();
       return;
     }
+    this.startApp();
+  },
+
+  initGoogleSignIn() {
+    const tryInit = () => {
+      if (typeof google === 'undefined' || !google.accounts) {
+        setTimeout(tryInit, 100);
+        return;
+      }
+      google.accounts.id.initialize({
+        client_id: '1044819155969-56ubqgqpferflutn7koa77jkqhks0752.apps.googleusercontent.com',
+        callback: (response) => App.handleGoogleLogin(response),
+      });
+      google.accounts.id.renderButton(
+        document.getElementById('googleSignIn'),
+        { theme: 'filled_black', size: 'large', width: 300, text: 'signin_with' }
+      );
+    };
+    tryInit();
+  },
+
+  startApp() {
     this.bindNav();
     this.bindKeyboard();
     this.connectSSE();
@@ -1388,27 +1411,20 @@ const App = {
 
 // ─── Login ────────────────────────────────────────────────
 
-App.login = async function(e) {
-  e.preventDefault();
-  const pw = document.getElementById('loginPassword').value;
+App.handleGoogleLogin = async function(response) {
   const errEl = document.getElementById('loginError');
   try {
-    await fetch('/api/v1/login', {
+    const r = await fetch('/api/v1/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ password: pw }),
-    }).then(r => {
-      if (!r.ok) throw new Error('Invalid password');
-      return r.json();
+      body: JSON.stringify({ credential: response.credential }),
     });
+    if (!r.ok) {
+      const data = await r.json().catch(() => ({}));
+      throw new Error(data.error || 'Authentication failed');
+    }
     document.getElementById('loginOverlay').classList.add('hidden');
-    App.bindNav();
-    App.bindKeyboard();
-    App.connectSSE();
-    App.pollStatus();
-    App.loadData();
-    App.loadCouncil();
-    App.loadHoldings();
+    App.startApp();
   } catch (err) {
     errEl.textContent = err.message;
     errEl.classList.remove('hidden');

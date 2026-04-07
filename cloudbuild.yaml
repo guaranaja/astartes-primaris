@@ -112,7 +112,9 @@ steps:
       - --region=${_REGION}
       - --platform=managed
       - --port=8401
-      - --set-env-vars=ENVIRONMENT=${_ENVIRONMENT}
+      - --allow-unauthenticated
+      - --set-env-vars=ENVIRONMENT=${_ENVIRONMENT},ADMIN_EMAILS=dave@janzend.com
+      - --set-secrets=GOOGLE_CLIENT_ID=google-client-id:latest,PRIMARCH_AUTH_PASSWORD=primarch-auth-password:latest,ALPACA_API_KEY=alpaca-api-key:latest,ALPACA_SECRET_KEY=alpaca-secret-key:latest,CLAUDE_API_KEY=claude-api-key:latest
       - --quiet
     waitFor: [push-primarch]
 
@@ -126,7 +128,7 @@ steps:
       - --region=${_REGION}
       - --platform=managed
       - --port=8080
-      - --set-env-vars=ENVIRONMENT=${_ENVIRONMENT}
+      - --set-env-vars=ENVIRONMENT=${_ENVIRONMENT},PRIMARCH_URL=https://primarch-${_ENVIRONMENT}-1044819155969.${_REGION}.run.app
       - --allow-unauthenticated
       - --quiet
     waitFor: [push-aurum]
@@ -176,8 +178,8 @@ steps:
       - --min-instances=1
       - --max-instances=3
       - --memory=512Mi
-      - --set-env-vars=ENVIRONMENT=${_ENVIRONMENT}
-      - --set-secrets=REGISTRY_MASTER_TOKEN=registry-master-token:latest,DISCORD_BOT_TOKEN=discord-bot-token:latest,PNL_REPORT_HMAC_SECRET=pnl-hmac-secret:latest,LIBRARIUM_PASSWORD=librarium-db-password-${_ENVIRONMENT}:latest
+      - --set-env-vars=^~^ENVIRONMENT=${_ENVIRONMENT}~ADMIN_EMAILS=dave@janzend.com~LIBRARIUM_HOST=10.118.0.3~LIBRARIUM_DB=librarium~LIBRARIUM_USER=librarium~REGISTRY_GCS_BUCKET=astartes-primaris-registry-bundles~DISCORD_CHANNEL_MARKETPLACE=1491106548175343667~DISCORD_CHANNEL_MARKETPLACE_ALERTS=1491106675527123195
+      - --set-secrets=REGISTRY_MASTER_TOKEN=registry-master-token:latest,DISCORD_BOT_TOKEN=discord-bot-token:latest,PNL_REPORT_HMAC_SECRET=pnl-hmac-secret:latest,LIBRARIUM_PASSWORD=librarium-db-password-${_ENVIRONMENT}:latest,GOOGLE_CLIENT_ID=google-client-id:latest
       - --vpc-connector=astartes-vpc-${_ENVIRONMENT}
       - --vpc-egress=private-ranges-only
       - --quiet

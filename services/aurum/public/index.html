@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>STRATEGIUM — Astartes Primaris</title>
   <link rel="stylesheet" href="/style.css">
+  <script src="https://accounts.google.com/gsi/client" async></script>
 </head>
 <body>
   <!-- ─── Top Bar ───────────────────────────────────────── -->
@@ -491,11 +492,8 @@
         <div class="logo-text">STRATEGIUM</div>
         <div class="logo-sub">ASTARTES PRIMARIS</div>
       </div>
-      <form id="loginForm" onsubmit="App.login(event)">
-        <input type="password" id="loginPassword" class="input" placeholder="Enter password" autofocus>
-        <button type="submit" class="btn btn-primary btn-lg" style="width:100%">Authenticate</button>
-        <div id="loginError" class="login-error hidden"></div>
-      </form>
+      <div id="googleSignIn" style="display:flex;justify-content:center;margin-top:1.5rem;"></div>
+      <div id="loginError" class="login-error hidden"></div>
     </div>
   </div>
 

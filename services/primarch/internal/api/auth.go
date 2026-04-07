@@ -4,8 +4,11 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 	"time"
 )
@@ -13,10 +16,23 @@ import (
 var (
 	sessionsMu sync.RWMutex
 	sessions   = make(map[string]time.Time) // token → expiry
-	authPass   = os.Getenv("PRIMARCH_AUTH_PASSWORD")
+
+	googleClientID = os.Getenv("GOOGLE_CLIENT_ID")
+	adminEmails    = parseAdminEmails(os.Getenv("ADMIN_EMAILS"))
 )
 
 const sessionTTL = 24 * time.Hour
+
+func parseAdminEmails(s string) map[string]bool {
+	m := make(map[string]bool)
+	for _, e := range strings.Split(s, ",") {
+		e = strings.TrimSpace(e)
+		if e != "" {
+			m[e] = true
+		}
+	}
+	return m
+}
 
 func generateToken() string {
 	b := make([]byte, 32)
@@ -39,19 +55,57 @@ func createSession() string {
 	return token
 }
 
-// handleLogin validates the password and returns a session cookie.
+// verifyGoogleToken validates a Google ID token via Google's tokeninfo endpoint.
+func verifyGoogleToken(idToken string) (string, error) {
+	resp, err := http.Get("https://oauth2.googleapis.com/tokeninfo?id_token=" + idToken)
+	if err != nil {
+		return "", fmt.Errorf("failed to verify token: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != 200 {
+		return "", fmt.Errorf("invalid token: %s", string(body))
+	}
+
+	var claims struct {
+		Email         string `json:"email"`
+		EmailVerified string `json:"email_verified"`
+		Aud           string `json:"aud"`
+	}
+	if err := json.Unmarshal(body, &claims); err != nil {
+		return "", fmt.Errorf("failed to parse token claims: %w", err)
+	}
+
+	if googleClientID != "" && claims.Aud != googleClientID {
+		return "", fmt.Errorf("token audience mismatch")
+	}
+	if claims.EmailVerified != "true" {
+		return "", fmt.Errorf("email not verified")
+	}
+	return claims.Email, nil
+}
+
+// handleLogin validates a Google ID token and returns a session cookie.
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Password string `json:"password"`
+		Credential string `json:"credential"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid json")
 		return
 	}
-	if authPass == "" || body.Password != authPass {
-		writeError(w, http.StatusUnauthorized, "invalid password")
+
+	email, err := verifyGoogleToken(body.Credential)
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "invalid google token")
 		return
 	}
+	if !adminEmails[email] {
+		writeError(w, http.StatusForbidden, "unauthorized email: "+email)
+		return
+	}
+
 	token := createSession()
 	http.SetCookie(w, &http.Cookie{
 		Name:     "session",
@@ -61,7 +115,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   int(sessionTTL.Seconds()),
 	})
-	writeJSON(w, http.StatusOK, map[string]string{"status": "authenticated"})
+	writeJSON(w, http.StatusOK, map[string]string{"status": "authenticated", "email": email})
 }
 
 // handleLogout clears the session.
@@ -85,12 +139,12 @@ func (s *Server) handleAuthCheck(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "authenticated"})
 }
 
-// authMiddleware protects API routes with session-based auth.
+// authMiddleware protects API routes with Google session-based auth.
 // Public routes: /health, /api/v1/login
 func authMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Skip auth if no password is configured
-		if authPass == "" {
+		// Skip auth if no admin emails configured (dev mode)
+		if len(adminEmails) == 0 {
 			next.ServeHTTP(w, r)
 			return
 		}

@@ -3,11 +3,13 @@
 // This dev server provides hot-reload and API proxying.
 
 const http = require('http');
+const https = require('https');
 const fs = require('fs');
 const path = require('path');
 
 const PORT = process.env.AURUM_PORT || 3000;
 const PRIMARCH_URL = process.env.PRIMARCH_URL || 'http://localhost:8401';
+const proxyLib = PRIMARCH_URL.startsWith('https') ? https : http;
 
 const MIME = {
   '.html': 'text/html',
@@ -22,7 +24,7 @@ const MIME = {
 const server = http.createServer((req, res) => {
   // Proxy API requests to Primarch
   if (req.url.startsWith('/api/') || req.url === '/health' || req.url === '/ws') {
-    const proxyReq = http.request(
+    const proxyReq = proxyLib.request(
       `${PRIMARCH_URL}${req.url}`,
       { method: req.method, headers: { ...req.headers, host: new URL(PRIMARCH_URL).host } },
       (proxyRes) => {

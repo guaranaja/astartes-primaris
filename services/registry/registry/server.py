@@ -188,14 +188,47 @@ async def require_client(authorization: str = Header(default="")) -> dict:
     return client
 
 
-def require_master(authorization: str = Header(default="")) -> None:
-    """Dependency: validate master auth token."""
-    if not MASTER_AUTH_TOKEN:
-        raise HTTPException(500, "REGISTRY_MASTER_TOKEN not configured")
+GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
+ADMIN_EMAILS = {e.strip() for e in os.environ.get("ADMIN_EMAILS", "").split(",") if e.strip()}
+
+
+async def _verify_google_token(id_token: str) -> Optional[str]:
+    """Validate a Google ID token, return email if valid."""
+    try:
+        session = _aiohttp.ClientSession() if not _discord_session else _discord_session
+        async with session.get(
+            f"https://oauth2.googleapis.com/tokeninfo?id_token={id_token}",
+            timeout=_aiohttp.ClientTimeout(total=10),
+        ) as resp:
+            if resp.status != 200:
+                return None
+            claims = await resp.json()
+        if GOOGLE_CLIENT_ID and claims.get("aud") != GOOGLE_CLIENT_ID:
+            return None
+        if claims.get("email_verified") != "true":
+            return None
+        return claims.get("email")
+    except Exception:
+        return None
+
+
+async def require_master(authorization: str = Header(default="")) -> None:
+    """Dependency: validate master auth token or Google admin token."""
     if not authorization.startswith("Bearer "):
         raise HTTPException(401, "Missing Authorization header")
-    if authorization[7:] != MASTER_AUTH_TOKEN:
-        raise HTTPException(403, "Invalid master token")
+    token = authorization[7:]
+
+    # Check master token first
+    if MASTER_AUTH_TOKEN and token == MASTER_AUTH_TOKEN:
+        return
+
+    # Fall back to Google ID token
+    if ADMIN_EMAILS:
+        email = await _verify_google_token(token)
+        if email and email in ADMIN_EMAILS:
+            return
+
+    raise HTTPException(403, "Invalid credentials")
 
 
 async def _audit(client_id, strategy_id, version, action, detail=None, ip=None):
@@ -211,6 +244,7 @@ async def _audit(client_id, strategy_id, version, action, detail=None, ip=None):
 # ── Health ───────────────────────────────────────────────────
 
 @app.get("/healthz")
+@app.get("/health")
 async def healthz():
     return {"status": "ok", "service": "registry"}
 
