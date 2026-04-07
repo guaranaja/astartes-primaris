@@ -32,7 +32,30 @@ func NewPGStore(dsn string, logger *slog.Logger) (*PGStore, error) {
 		return nil, fmt.Errorf("ping db: %w", err)
 	}
 	logger.Info("connected to PostgreSQL")
-	return &PGStore{db: db, logger: logger}, nil
+	s := &PGStore{db: db, logger: logger}
+	s.ensureSchema()
+	return s, nil
+}
+
+// ensureSchema creates tables that Primarch manages directly.
+func (s *PGStore) ensureSchema() {
+	_, err := s.db.Exec(`
+		CREATE TABLE IF NOT EXISTS commands (
+			id            TEXT PRIMARY KEY,
+			engine_id     TEXT NOT NULL,
+			command       TEXT NOT NULL,
+			scope         TEXT NOT NULL,
+			params        JSONB,
+			status        TEXT NOT NULL DEFAULT 'pending',
+			error_message TEXT,
+			created_at    TIMESTAMPTZ DEFAULT now(),
+			updated_at    TIMESTAMPTZ DEFAULT now()
+		);
+		CREATE INDEX IF NOT EXISTS idx_commands_engine_status ON commands (engine_id, status);
+	`)
+	if err != nil {
+		s.logger.Error("ensure schema", "error", err)
+	}
 }
 
 // Close closes the database connection.
