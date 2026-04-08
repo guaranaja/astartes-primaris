@@ -401,15 +401,21 @@ const App = {
     tbody.innerHTML = trades.map(t => {
       const pnlColor = t.pnl >= 0 ? 'var(--green)' : 'var(--red)';
       const pnlStr = (t.pnl >= 0 ? '+' : '') + '$' + Math.abs(t.pnl).toFixed(2);
+      const meta = t.metadata || {};
+      const signal = meta.signal_type || '—';
+      const regime = meta.regime || '';
+      const exitReason = meta.exit_reason || '';
+      const dur = Math.round((t.duration_ms || 0) / 1000);
+      const durStr = dur >= 60 ? Math.floor(dur / 60) + 'm ' + (dur % 60) + 's' : dur + 's';
       return `<tr>
         <td>${formatDate(t.exit_time)} ${formatTime(t.exit_time)}</td>
-        <td>${esc(t.marine_id)}</td>
-        <td>${esc(t.symbol)}</td>
-        <td>${t.side}</td>
-        <td>${t.quantity}</td>
+        <td><span style="color:var(--cyan)">${esc(signal)}</span></td>
+        <td>${t.side} ${t.quantity}x ${esc(t.symbol)}</td>
         <td>$${Number(t.entry_price).toFixed(2)}</td>
         <td>$${Number(t.exit_price).toFixed(2)}</td>
         <td style="color:${pnlColor};font-weight:600">${pnlStr}</td>
+        <td>${esc(exitReason)}</td>
+        <td>${durStr}</td>
       </tr>`;
     }).join('');
   },

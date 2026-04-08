@@ -287,19 +287,20 @@ type EngineCommandCompleteRequest struct {
 
 // Trade represents a completed round-trip trade.
 type Trade struct {
-	ID              string    `json:"id"`
-	MarineID        string    `json:"marine_id"`
-	BrokerAccountID string    `json:"broker_account_id"`
-	Symbol          string    `json:"symbol"`
-	Side            string    `json:"side"` // "long", "short"
-	Quantity        float64   `json:"quantity"`
-	EntryPrice      float64   `json:"entry_price"`
-	ExitPrice       float64   `json:"exit_price"`
-	EntryTime       time.Time `json:"entry_time"`
-	ExitTime        time.Time `json:"exit_time"`
-	PnL             float64   `json:"pnl"`
-	Fees            float64   `json:"fees"`
-	DurationMs      int64     `json:"duration_ms"`
+	ID              string            `json:"id"`
+	MarineID        string            `json:"marine_id"`
+	BrokerAccountID string            `json:"broker_account_id"`
+	Symbol          string            `json:"symbol"`
+	Side            string            `json:"side"` // "long", "short"
+	Quantity        float64           `json:"quantity"`
+	EntryPrice      float64           `json:"entry_price"`
+	ExitPrice       float64           `json:"exit_price"`
+	EntryTime       time.Time         `json:"entry_time"`
+	ExitTime        time.Time         `json:"exit_time"`
+	PnL             float64           `json:"pnl"`
+	Fees            float64           `json:"fees"`
+	DurationMs      int64             `json:"duration_ms"`
+	Metadata        map[string]string `json:"metadata,omitempty"` // signal_type, regime, exit_reason, confidence, r_multiple, slippage, etc.
 }
 
 // Position represents a current open position.

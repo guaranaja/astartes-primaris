@@ -67,6 +67,7 @@ func (s *PGStore) ensureSchema() {
 			fees              DOUBLE PRECISION NOT NULL DEFAULT 0,
 			duration_ms       BIGINT DEFAULT 0
 		)`,
+		`ALTER TABLE trades ADD COLUMN IF NOT EXISTS metadata JSONB DEFAULT '{}'`,
 		`CREATE INDEX IF NOT EXISTS idx_trades_marine ON trades (marine_id, exit_time DESC)`,
 		`CREATE INDEX IF NOT EXISTS idx_trades_exit ON trades (exit_time DESC)`,
 		`CREATE TABLE IF NOT EXISTS account_snapshots (
@@ -1192,10 +1193,11 @@ func (s *PGStore) UpdateCommand(c *domain.Command) error {
 // ─── Trades ────────────────────────────────────────────────
 
 func (s *PGStore) UpsertTrade(t *domain.Trade) (bool, error) {
-	res, err := s.db.Exec(`INSERT INTO trades (id, marine_id, broker_account_id, symbol, side, quantity, entry_price, exit_price, entry_time, exit_time, pnl, fees, duration_ms)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
-		ON CONFLICT (id) DO UPDATE SET pnl=$11, fees=$12, exit_price=$8, exit_time=$10, duration_ms=$13`,
-		t.ID, t.MarineID, t.BrokerAccountID, t.Symbol, t.Side, t.Quantity, t.EntryPrice, t.ExitPrice, t.EntryTime, t.ExitTime, t.PnL, t.Fees, t.DurationMs)
+	meta, _ := json.Marshal(t.Metadata)
+	res, err := s.db.Exec(`INSERT INTO trades (id, marine_id, broker_account_id, symbol, side, quantity, entry_price, exit_price, entry_time, exit_time, pnl, fees, duration_ms, metadata)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+		ON CONFLICT (id) DO UPDATE SET pnl=$11, fees=$12, exit_price=$8, exit_time=$10, duration_ms=$13, metadata=$14`,
+		t.ID, t.MarineID, t.BrokerAccountID, t.Symbol, t.Side, t.Quantity, t.EntryPrice, t.ExitPrice, t.EntryTime, t.ExitTime, t.PnL, t.Fees, t.DurationMs, meta)
 	if err != nil {
 		return false, err
 	}
@@ -1204,7 +1206,7 @@ func (s *PGStore) UpsertTrade(t *domain.Trade) (bool, error) {
 }
 
 func (s *PGStore) ListTrades(marineID string, since *time.Time, limit int) []domain.Trade {
-	query := `SELECT id, marine_id, broker_account_id, symbol, side, quantity, entry_price, exit_price, entry_time, exit_time, pnl, fees, duration_ms FROM trades WHERE 1=1`
+	query := `SELECT id, marine_id, broker_account_id, symbol, side, quantity, entry_price, exit_price, entry_time, exit_time, pnl, fees, duration_ms, COALESCE(metadata, '{}') FROM trades WHERE 1=1`
 	var args []interface{}
 	argN := 1
 	if marineID != "" {
@@ -1233,10 +1235,12 @@ func (s *PGStore) ListTrades(marineID string, since *time.Time, limit int) []dom
 	var out []domain.Trade
 	for rows.Next() {
 		var t domain.Trade
-		if err := rows.Scan(&t.ID, &t.MarineID, &t.BrokerAccountID, &t.Symbol, &t.Side, &t.Quantity, &t.EntryPrice, &t.ExitPrice, &t.EntryTime, &t.ExitTime, &t.PnL, &t.Fees, &t.DurationMs); err != nil {
+		var meta []byte
+		if err := rows.Scan(&t.ID, &t.MarineID, &t.BrokerAccountID, &t.Symbol, &t.Side, &t.Quantity, &t.EntryPrice, &t.ExitPrice, &t.EntryTime, &t.ExitTime, &t.PnL, &t.Fees, &t.DurationMs, &meta); err != nil {
 			s.logger.Error("scan trade", "error", err)
 			continue
 		}
+		json.Unmarshal(meta, &t.Metadata)
 		out = append(out, t)
 	}
 	return out
