@@ -336,6 +336,32 @@ type AccountSnapshot struct {
 	PayoutCount     int      `json:"payout_count,omitempty"`
 	WinningDays     int      `json:"winning_days,omitempty"`
 	TotalTradingDays int     `json:"total_trading_days,omitempty"`
+	// Enhanced fields (from Fortress Primus v2)
+	AccountPhase       string  `json:"account_phase,omitempty"`       // "combine", "fxt", "live", "blown"
+	TrailingDD         float64 `json:"trailing_dd,omitempty"`
+	SessionHighEquity  float64 `json:"session_high_equity,omitempty"`
+	MLLHeadroom        float64 `json:"mll_headroom,omitempty"`
+	MLLUsagePct        float64 `json:"mll_usage_pct,omitempty"`
+	CombineProgressPct float64 `json:"combine_progress_pct,omitempty"`
+	WithdrawalAvail    float64 `json:"withdrawal_available,omitempty"`
+	IsLockedOut        bool    `json:"is_locked_out,omitempty"`
+	LockoutReason      string  `json:"lockout_reason,omitempty"`
+	BrokerBalance      float64 `json:"broker_balance,omitempty"`
+	BrokerCanTrade     *bool   `json:"broker_can_trade,omitempty"`
+	DailyTrades        int     `json:"daily_trades,omitempty"`
+	DailyWins          int     `json:"daily_wins,omitempty"`
+	DailyLosses        int     `json:"daily_losses,omitempty"`
+	// Combine lifecycle
+	CombineNumber    int    `json:"combine_number,omitempty"`
+	CombineStartDate string `json:"combine_start_date,omitempty"` // ISO date
+	CombinePassDate  string `json:"combine_pass_date,omitempty"`  // ISO date, null if active
+	FundedDate       string `json:"funded_date,omitempty"`        // ISO date
+	BlownDate        string `json:"blown_date,omitempty"`         // ISO date, null if active
+	// Performance metrics
+	BestDayPnL     float64 `json:"best_day_pnl,omitempty"`
+	ConsistencyPct float64 `json:"consistency_pct,omitempty"` // best day as % of total (TopstepX < 50%)
+	AvgDailyPnL    float64 `json:"avg_daily_pnl,omitempty"`
+	OverallWinRate float64 `json:"overall_win_rate,omitempty"`
 }
 
 // MarketBar represents an OHLCV bar.
@@ -569,6 +595,29 @@ type TradingAccount struct {
 	Instruments    []string    `json:"instruments"`
 	CreatedAt      time.Time   `json:"created_at"`
 	UpdatedAt      time.Time   `json:"updated_at"`
+	// Risk & drawdown (from engine snapshot)
+	MaxLossLimit       float64 `json:"max_loss_limit,omitempty"`
+	ProfitTarget       float64 `json:"profit_target,omitempty"`
+	DailyPnL           float64 `json:"daily_pnl,omitempty"`
+	TrailingDD         float64 `json:"trailing_dd,omitempty"`
+	MLLHeadroom        float64 `json:"mll_headroom,omitempty"`
+	MLLUsagePct        float64 `json:"mll_usage_pct,omitempty"`
+	CombineProgressPct float64 `json:"combine_progress_pct,omitempty"`
+	WithdrawalAvail    float64 `json:"withdrawal_available,omitempty"`
+	AccountPhase       string  `json:"account_phase,omitempty"` // "combine", "fxt", "live", "blown"
+	// Combine lifecycle
+	CombineNumber    int    `json:"combine_number,omitempty"`
+	CombineStartDate string `json:"combine_start_date,omitempty"`
+	CombinePassDate  string `json:"combine_pass_date,omitempty"`
+	FundedDate       string `json:"funded_date,omitempty"`
+	BlownDate        string `json:"blown_date,omitempty"`
+	// Performance metrics
+	BestDayPnL       float64 `json:"best_day_pnl,omitempty"`
+	ConsistencyPct   float64 `json:"consistency_pct,omitempty"`
+	AvgDailyPnL      float64 `json:"avg_daily_pnl,omitempty"`
+	OverallWinRate   float64 `json:"overall_win_rate,omitempty"`
+	WinningDays      int     `json:"winning_days,omitempty"`
+	TotalTradingDays int     `json:"total_trading_days,omitempty"`
 }
 
 // Payout records a withdrawal from a trading account.

@@ -1482,12 +1482,16 @@ const App = {
 
     el.innerHTML = accounts.map(a => {
       const profit = a.current_balance - a.initial_balance;
-      const drawdownPct = a.initial_balance > 0
-        ? ((a.initial_balance - Math.min(a.current_balance, a.initial_balance)) / a.initial_balance * 100)
-        : 0;
       const profitPct = a.initial_balance > 0 ? (profit / a.initial_balance * 100) : 0;
       const isActive = a.status === 'active';
-      const statusColor = isActive ? 'var(--green)' : a.status === 'blown' ? 'var(--red)' : 'var(--text-3)';
+      const phase = a.account_phase || (a.status === 'blown' ? 'blown' : 'combine');
+      const phaseColors = { combine: 'var(--accent)', fxt: 'var(--green)', live: 'var(--gold)', blown: 'var(--red)' };
+      const phaseLabels = { combine: 'COMBINE', fxt: 'FUNDED (FXT)', live: 'LIVE', blown: 'BLOWN' };
+      const statusColor = phaseColors[phase] || 'var(--text-3)';
+      const mllPct = a.mll_usage_pct || 0;
+      const mllBarColor = mllPct > 80 ? 'var(--red)' : mllPct > 50 ? 'var(--gold)' : 'var(--green)';
+      const combProg = a.combine_progress_pct || 0;
+      const consistencyOk = (a.consistency_pct || 0) < 50;
 
       return `
         <div class="prop-account-card ${a.status}">
@@ -1495,8 +1499,9 @@ const App = {
             <div>
               <span class="prop-acct-name">${esc(a.name)}</span>
               <span class="prop-acct-broker">${esc(a.broker)}</span>
+              ${a.combine_number ? `<span style="color:var(--text-3);font-size:11px">#${a.combine_number}</span>` : ''}
             </div>
-            <span class="prop-acct-status" style="color:${statusColor}">${a.status.toUpperCase()}</span>
+            <span class="prop-acct-status" style="color:${statusColor}">${phaseLabels[phase] || a.status.toUpperCase()}</span>
           </div>
 
           <div class="prop-acct-balances">
@@ -1505,11 +1510,11 @@ const App = {
               <span class="prop-bal-value">$${fmt(a.current_balance)}</span>
             </div>
             <div class="prop-acct-bal">
-              <span class="prop-bal-label">Initial</span>
-              <span class="prop-bal-value" style="color:var(--text-2)">$${fmt(a.initial_balance)}</span>
+              <span class="prop-bal-label">Daily P&L</span>
+              <span class="prop-bal-value ${(a.daily_pnl||0) >= 0 ? 'positive' : 'negative'}">${(a.daily_pnl||0) >= 0 ? '+' : ''}$${fmt(a.daily_pnl||0)}</span>
             </div>
             <div class="prop-acct-bal">
-              <span class="prop-bal-label">P&L</span>
+              <span class="prop-bal-label">Total P&L</span>
               <span class="prop-bal-value ${profit >= 0 ? 'positive' : 'negative'}">${profit >= 0 ? '+' : ''}$${fmt(profit)}</span>
             </div>
             <div class="prop-acct-bal">
@@ -1518,23 +1523,52 @@ const App = {
             </div>
           </div>
 
+          ${phase === 'combine' && a.profit_target > 0 ? `
+          <div class="prop-progress-section">
+            <div class="prop-detail-row">
+              <span>Combine Progress</span>
+              <span class="positive">${combProg.toFixed(1)}% of $${fmt(a.profit_target)}</span>
+            </div>
+            <div class="progress-bar"><div class="progress-fill" style="width:${Math.min(combProg,100)}%;background:var(--green)"></div></div>
+          </div>` : ''}
+
+          ${a.max_loss_limit > 0 ? `
+          <div class="prop-progress-section">
+            <div class="prop-detail-row">
+              <span>MLL Usage</span>
+              <span style="color:${mllBarColor}">${mllPct.toFixed(1)}% ($${fmt(a.mll_headroom||0)} headroom)</span>
+            </div>
+            <div class="progress-bar"><div class="progress-fill" style="width:${Math.min(mllPct,100)}%;background:${mllBarColor}"></div></div>
+          </div>` : ''}
+
           <div class="prop-acct-details">
+            ${a.combine_start_date ? `<div class="prop-detail-row"><span>Combine Started</span><span>${a.combine_start_date}</span></div>` : ''}
+            ${a.combine_pass_date ? `<div class="prop-detail-row"><span>Combine Passed</span><span class="positive">${a.combine_pass_date}</span></div>` : ''}
+            ${a.funded_date ? `<div class="prop-detail-row"><span>Funded Date</span><span class="positive">${a.funded_date}</span></div>` : ''}
+            ${a.blown_date ? `<div class="prop-detail-row"><span>Blown Date</span><span class="negative">${a.blown_date}</span></div>` : ''}
             <div class="prop-detail-row">
               <span>Profit Split</span>
               <span style="color:var(--gold)">${Math.round(a.profit_split * 100)}% / ${Math.round((1 - a.profit_split) * 100)}%</span>
             </div>
-            <div class="prop-detail-row">
-              <span>Your Take (of P&L)</span>
-              <span class="${profit >= 0 ? 'positive' : 'negative'}">$${fmt(Math.max(0, profit) * a.profit_split)}</span>
-            </div>
-            <div class="prop-detail-row">
-              <span>Firm Take</span>
-              <span style="color:var(--text-2)">$${fmt(Math.max(0, profit) * (1 - a.profit_split))}</span>
-            </div>
+            ${a.withdrawal_available > 0 ? `<div class="prop-detail-row"><span>Available for Withdrawal</span><span class="positive">$${fmt(a.withdrawal_available)}</span></div>` : ''}
             <div class="prop-detail-row">
               <span>Payouts</span>
               <span>${a.payout_count} ($${fmt(a.total_payouts)} net)</span>
             </div>
+            <div class="prop-detail-row">
+              <span>Trading Days</span>
+              <span>${a.winning_days || 0}W / ${(a.total_trading_days||0) - (a.winning_days||0)}L (${a.total_trading_days || 0} total)</span>
+            </div>
+            ${a.best_day_pnl ? `<div class="prop-detail-row">
+              <span>Best Day</span>
+              <span class="positive">$${fmt(a.best_day_pnl)}</span>
+            </div>` : ''}
+            ${a.consistency_pct ? `<div class="prop-detail-row">
+              <span>Consistency Rule</span>
+              <span style="color:${consistencyOk ? 'var(--green)' : 'var(--red)'}">${a.consistency_pct.toFixed(1)}% ${consistencyOk ? '(OK)' : '(WARNING > 50%)'}</span>
+            </div>` : ''}
+            ${a.avg_daily_pnl ? `<div class="prop-detail-row"><span>Avg Daily P&L</span><span class="${a.avg_daily_pnl >= 0 ? 'positive' : 'negative'}">$${Number(a.avg_daily_pnl).toFixed(0)}</span></div>` : ''}
+            ${a.overall_win_rate ? `<div class="prop-detail-row"><span>Win Rate</span><span>${a.overall_win_rate.toFixed(0)}%</span></div>` : ''}
             <div class="prop-detail-row">
               <span>Instruments</span>
               <span style="font-family:var(--font-mono);font-size:11px">${(a.instruments || []).join(', ') || '—'}</span>
