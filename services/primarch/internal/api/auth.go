@@ -169,12 +169,13 @@ func authMiddleware(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		// Check bearer token for engine protocol routes
+		// Accept bearer token on any API route (engine + query endpoints)
+		if validBearerToken(r) {
+			next.ServeHTTP(w, r)
+			return
+		}
+		// Engine routes require bearer — no session fallback
 		if strings.HasPrefix(path, "/api/v1/engine/") {
-			if validBearerToken(r) {
-				next.ServeHTTP(w, r)
-				return
-			}
 			writeError(w, http.StatusUnauthorized, "invalid service token")
 			return
 		}
