@@ -92,6 +92,14 @@ type DataStore interface {
 	UpdateHolding(h *domain.Holding) error
 	DeleteHolding(id string) error
 
+	// ─── Wheel Cycles ──────────────────────────────────
+	ListWheelCycles() []domain.WheelCycle
+	CreateWheelCycle(c *domain.WheelCycle) error
+	UpdateWheelCycle(c *domain.WheelCycle) error
+	ListWheelLegs(cycleID string) []domain.WheelLeg
+	CreateWheelLeg(l *domain.WheelLeg) error
+	UpdateWheelLeg(l *domain.WheelLeg) error
+
 	// ─── Commands (Engine Protocol) ────────────────────────
 	CreateCommand(c *domain.Command) error
 	GetCommand(id string) (*domain.Command, error)

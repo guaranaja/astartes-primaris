@@ -1554,6 +1554,44 @@ select.input option { background: var(--bg-1); }
   .summary-banner { flex-wrap: wrap; gap: 12px; }
 }
 
+/* ─── Wheel Cycle Manager ───────────────────────────────── */
+
+.wheel-cycles { display: flex; flex-direction: column; gap: 12px; }
+.wheel-cycle-card {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+}
+.wheel-cycle-card.active { border-left: 3px solid var(--accent); }
+.wheel-cycle-card.neutral { opacity: 0.7; }
+.wheel-cycle-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.wheel-cycle-header strong { font-size: 1.1em; margin-right: 8px; }
+.wheel-cycle-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.75em;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+.badge-selling_puts { background: #2d1b69; color: #b794f4; }
+.badge-assigned { background: #1a365d; color: #63b3ed; }
+.badge-selling_calls { background: #1c4532; color: #68d391; }
+.badge-called_away { background: #2d3748; color: #a0aec0; }
+.badge-closed { background: #1a202c; color: #718096; }
+.badge-mode { background: #2d3748; color: #a0aec0; }
+.premium { font-weight: 600; }
+.shares { color: var(--text-secondary); margin-left: 12px; }
+
 @media (max-width: 600px) {
   .status-cards { grid-template-columns: 1fr; }
   #topbar { flex-wrap: wrap; height: auto; padding: 8px; gap: 8px; }

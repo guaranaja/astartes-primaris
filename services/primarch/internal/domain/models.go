@@ -733,6 +733,44 @@ type Payment struct {
 	Note      string    `json:"note,omitempty"`
 }
 
+// ═══════════════════════════════════════════════════════════
+// WHEEL CYCLE MANAGER — Options Wheel Strategy Tracking
+// ═══════════════════════════════════════════════════════════
+
+// WheelCycle tracks one full iteration of the wheel strategy on an underlying.
+type WheelCycle struct {
+	ID                    string            `json:"id"`
+	Underlying            string            `json:"underlying"`
+	Status                string            `json:"status"` // selling_puts, assigned, selling_calls, called_away, closed
+	Mode                  string            `json:"mode"`   // manual, automated
+	MarineID              string            `json:"marine_id,omitempty"`
+	Broker                string            `json:"broker,omitempty"`
+	StartedAt             time.Time         `json:"started_at"`
+	ClosedAt              *time.Time        `json:"closed_at,omitempty"`
+	TotalPremiumCollected float64           `json:"total_premium_collected"`
+	CostBasis             float64           `json:"cost_basis"`
+	SharesHeld            int               `json:"shares_held"`
+	Metadata              map[string]string `json:"metadata,omitempty"`
+}
+
+// WheelLeg represents a single option trade within a wheel cycle.
+type WheelLeg struct {
+	ID         string     `json:"id"`
+	CycleID    string     `json:"cycle_id"`
+	LegType    string     `json:"leg_type"` // csp, covered_call, assignment, called_away, roll, close
+	Symbol     string     `json:"symbol"`
+	Strike     float64    `json:"strike"`
+	Expiration string     `json:"expiration,omitempty"` // YYYY-MM-DD
+	OptionType string     `json:"option_type,omitempty"` // P, C
+	Quantity   int        `json:"quantity"`
+	Premium    float64    `json:"premium"`
+	FillPrice  float64    `json:"fill_price"`
+	OpenedAt   time.Time  `json:"opened_at"`
+	ClosedAt   *time.Time `json:"closed_at,omitempty"`
+	Status     string     `json:"status"` // open, expired, assigned, exercised, closed, rolled
+	Notes      string     `json:"notes,omitempty"`
+}
+
 // BillingSummary aggregates expense and payment data for a period.
 type BillingSummary struct {
 	Month           string    `json:"month"` // "2026-03"
