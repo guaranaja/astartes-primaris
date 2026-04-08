@@ -100,6 +100,16 @@ message ResourceLimits {
   int32 timeout_seconds = 3;         // Max execution time
 }
 
+// ─── Instrument Classification ──────────────────────────────
+
+enum InstrumentType {
+  INSTRUMENT_TYPE_UNSPECIFIED = 0;
+  INSTRUMENT_TYPE_FUTURE = 1;
+  INSTRUMENT_TYPE_EQUITY = 2;
+  INSTRUMENT_TYPE_OPTION = 3;
+  INSTRUMENT_TYPE_CRYPTO = 4;
+}
+
 // ─── Trading ────────────────────────────────────────────────
 
 message Signal {
@@ -112,6 +122,8 @@ message Signal {
   OrderType order_type = 7;
   google.protobuf.Timestamp generated_at = 8;
   map<string, string> metadata = 9;
+  InstrumentType instrument_type = 10;
+  repeated OptionLeg option_legs = 11; // empty for non-options
 }
 
 enum SignalType {
@@ -130,6 +142,16 @@ enum OrderType {
   ORDER_TYPE_STOP_LIMIT = 4;
 }
 
+// Option-specific order parameters (for multi-leg strategies)
+message OptionLeg {
+  string underlying = 1;
+  string expiration = 2;              // "2026-04-17" ISO date
+  double strike = 3;
+  string option_type = 4;            // "C" or "P"
+  SignalType side = 5;               // BUY/SELL per leg
+  double quantity = 6;
+}
+
 message Order {
   string id = 1;
   string marine_id = 2;
@@ -145,6 +167,9 @@ message Order {
   double filled_price = 12;
   google.protobuf.Timestamp created_at = 13;
   google.protobuf.Timestamp updated_at = 14;
+  InstrumentType instrument_type = 15;
+  repeated OptionLeg option_legs = 16; // empty for non-options
+  string underlying = 17;             // for options, the stock symbol
 }
 
 enum OrderStatus {
@@ -166,6 +191,17 @@ message Position {
   double unrealized_pnl = 6;
   double realized_pnl = 7;
   google.protobuf.Timestamp updated_at = 8;
+  // Multi-asset extensions
+  InstrumentType instrument_type = 9;
+  string expiration = 10;            // options only
+  double strike = 11;                // options only
+  string option_type = 12;           // "C"/"P", options only
+  // Greeks (options only, updated with position)
+  double delta = 13;
+  double theta = 14;
+  double gamma = 15;
+  double vega = 16;
+  double iv = 17;
 }
 
 // ─── Vox Event Envelope ─────────────────────────────────────
