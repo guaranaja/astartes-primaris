@@ -283,6 +283,125 @@ type EngineCommandCompleteRequest struct {
 	Error  string `json:"error,omitempty"`
 }
 
+// ─── Engine Data Sync ───────────────────────────────────────
+
+// Trade represents a completed round-trip trade.
+type Trade struct {
+	ID              string    `json:"id"`
+	MarineID        string    `json:"marine_id"`
+	BrokerAccountID string    `json:"broker_account_id"`
+	Symbol          string    `json:"symbol"`
+	Side            string    `json:"side"` // "long", "short"
+	Quantity        float64   `json:"quantity"`
+	EntryPrice      float64   `json:"entry_price"`
+	ExitPrice       float64   `json:"exit_price"`
+	EntryTime       time.Time `json:"entry_time"`
+	ExitTime        time.Time `json:"exit_time"`
+	PnL             float64   `json:"pnl"`
+	Fees            float64   `json:"fees"`
+	DurationMs      int64     `json:"duration_ms"`
+}
+
+// Position represents a current open position.
+type Position struct {
+	MarineID        string  `json:"marine_id"`
+	BrokerAccountID string  `json:"broker_account_id"`
+	Symbol          string  `json:"symbol"`
+	Quantity        float64 `json:"quantity"`
+	AveragePrice    float64 `json:"average_price"`
+	UnrealizedPnL   float64 `json:"unrealized_pnl"`
+	RealizedPnL     float64 `json:"realized_pnl"`
+}
+
+// AccountSnapshot represents a point-in-time account balance.
+type AccountSnapshot struct {
+	BrokerAccountID string    `json:"broker_account_id"`
+	Balance         float64   `json:"balance"`
+	DailyPnL        float64   `json:"daily_pnl"`
+	TotalPnL        float64   `json:"total_pnl"`
+	Timestamp       time.Time `json:"timestamp"`
+}
+
+// MarketBar represents an OHLCV bar.
+type MarketBar struct {
+	Time       time.Time `json:"time"`
+	Symbol     string    `json:"symbol"`
+	Timeframe  string    `json:"timeframe"`
+	Source     string    `json:"source,omitempty"`
+	Open       float64   `json:"open"`
+	High       float64   `json:"high"`
+	Low        float64   `json:"low"`
+	Close      float64   `json:"close"`
+	Volume     int64     `json:"volume"`
+	VWAP       float64   `json:"vwap,omitempty"`
+	TradeCount int       `json:"trade_count,omitempty"`
+}
+
+// ─── Ingestion Requests/Responses ───────────────────────────
+
+// EngineTradesRequest is a bulk trade upload from an engine.
+type EngineTradesRequest struct {
+	EngineID string  `json:"engine_id"`
+	Trades   []Trade `json:"trades"`
+}
+
+// EngineTradesResponse reports upsert results.
+type EngineTradesResponse struct {
+	TradesCreated int `json:"trades_created"`
+	TradesSkipped int `json:"trades_skipped"`
+	TradesUpdated int `json:"trades_updated"`
+}
+
+// EnginePositionsRequest is a position snapshot from an engine.
+type EnginePositionsRequest struct {
+	EngineID  string     `json:"engine_id"`
+	Positions []Position `json:"positions"`
+}
+
+// EngineAccountSnapshotRequest is an account balance update.
+type EngineAccountSnapshotRequest struct {
+	EngineID string            `json:"engine_id"`
+	Accounts []AccountSnapshot `json:"accounts"`
+}
+
+// EngineBarsRequest is a bulk bar upload from an engine.
+type EngineBarsRequest struct {
+	EngineID string      `json:"engine_id"`
+	Bars     []MarketBar `json:"bars"`
+}
+
+// EngineBarsResponse reports upsert results.
+type EngineBarsResponse struct {
+	BarsCreated int `json:"bars_created"`
+	BarsSkipped int `json:"bars_skipped"`
+}
+
+// ─── Performance Query Types ────────────────────────────────
+
+// PerformanceStats holds computed trading statistics.
+type PerformanceStats struct {
+	TotalTrades      int     `json:"total_trades"`
+	WinRate          float64 `json:"win_rate"`
+	ProfitFactor     float64 `json:"profit_factor"`
+	AvgWin           float64 `json:"avg_win"`
+	AvgLoss          float64 `json:"avg_loss"`
+	BestTrade        float64 `json:"best_trade"`
+	WorstTrade       float64 `json:"worst_trade"`
+	TotalPnL         float64 `json:"total_pnl"`
+	MaxDrawdown      float64 `json:"max_drawdown"`
+	AvgDurationMs    int64   `json:"avg_duration_ms"`
+	TotalLots        float64 `json:"total_lots"`
+	LongPct          float64 `json:"long_pct"`
+	DailyPnL         []DailyPnL `json:"daily_pnl,omitempty"`
+}
+
+// DailyPnL is a single day's P&L for calendar/chart views.
+type DailyPnL struct {
+	Date       string  `json:"date"` // "2026-04-07"
+	PnL        float64 `json:"pnl"`
+	TradeCount int     `json:"trade_count"`
+}
+
 // ═══════════════════════════════════════════════════════════
 // HOLDINGS — Manual Stock Positions for Wheel Strategy
 // ═══════════════════════════════════════════════════════════

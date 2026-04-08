@@ -3,6 +3,7 @@
 package cfo
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -254,6 +255,106 @@ func (c *FireflyClient) GetSummary(start, end time.Time) (FFSummary, error) {
 		return nil, err
 	}
 	return summary, nil
+}
+
+// ─── Piggy Banks (Goals) ──────────────────────────────────
+
+// FFPiggyBank represents a Firefly III piggy bank (savings goal).
+type FFPiggyBank struct {
+	ID            string  `json:"id"`
+	Name          string  `json:"name"`
+	TargetAmount  float64 `json:"target_amount,string"`
+	CurrentAmount float64 `json:"current_amount,string"`
+	Percentage    float64 `json:"percentage"`
+	Active        bool    `json:"active"`
+	Notes         string  `json:"notes"`
+	StartDate     string  `json:"start_date"`
+	TargetDate    string  `json:"target_date"`
+	Order         int     `json:"order"`
+}
+
+type ffPiggyBankWrapper struct {
+	ID         string      `json:"id"`
+	Attributes FFPiggyBank `json:"attributes"`
+}
+
+type ffPiggyBanksResponse struct {
+	Data []ffPiggyBankWrapper `json:"data"`
+}
+
+// ListPiggyBanks returns all piggy banks (savings goals).
+func (c *FireflyClient) ListPiggyBanks() ([]FFPiggyBank, error) {
+	var resp ffPiggyBanksResponse
+	if err := c.getJSON("/api/v1/piggy-banks?limit=100", &resp); err != nil {
+		return nil, err
+	}
+	var out []FFPiggyBank
+	for _, d := range resp.Data {
+		pb := d.Attributes
+		pb.ID = d.ID
+		out = append(out, pb)
+	}
+	return out, nil
+}
+
+// GetBudgetLimits returns spending limits for a budget in a date range.
+func (c *FireflyClient) GetBudgetLimits(budgetID string, start, end time.Time) ([]FFBudgetLimit, error) {
+	path := fmt.Sprintf("/api/v1/budgets/%s/limits?start=%s&end=%s",
+		budgetID,
+		url.QueryEscape(start.Format("2006-01-02")),
+		url.QueryEscape(end.Format("2006-01-02")))
+	var resp ffBudgetLimitsResponse
+	if err := c.getJSON(path, &resp); err != nil {
+		return nil, err
+	}
+	out := make([]FFBudgetLimit, len(resp.Data))
+	for i, d := range resp.Data {
+		out[i] = d.Attributes
+	}
+	return out, nil
+}
+
+// ─── Write Operations ─────────────────────────────────────
+
+// FFTransactionStore is the payload for creating a transaction.
+type FFTransactionStore struct {
+	Type            string   `json:"type"`             // deposit, withdrawal, transfer
+	Description     string   `json:"description"`
+	Date            string   `json:"date"`             // 2006-01-02
+	Amount          string   `json:"amount"`
+	SourceName      string   `json:"source_name"`
+	DestinationName string   `json:"destination_name"`
+	CategoryName    string   `json:"category_name,omitempty"`
+	Tags            []string `json:"tags,omitempty"`
+}
+
+type ffTransactionStorePayload struct {
+	Transactions []FFTransactionStore `json:"transactions"`
+}
+
+func (c *FireflyClient) postJSON(path string, body interface{}) error {
+	b, err := json.Marshal(body)
+	if err != nil {
+		return fmt.Errorf("marshal: %w", err)
+	}
+	resp, err := c.do("POST", path, bytes.NewReader(b))
+	if err != nil {
+		return fmt.Errorf("firefly POST %s: %w", path, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		msg, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("firefly POST %s returned %d: %s", path, resp.StatusCode, string(msg))
+	}
+	return nil
+}
+
+// CreateTransaction creates a transaction in Firefly III.
+func (c *FireflyClient) CreateTransaction(txn FFTransactionStore) error {
+	payload := ffTransactionStorePayload{
+		Transactions: []FFTransactionStore{txn},
+	}
+	return c.postJSON("/api/v1/transactions", payload)
 }
 
 // Ping tests connectivity to the Firefly III instance.

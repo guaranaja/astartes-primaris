@@ -1,7 +1,11 @@
 // Package store defines the DataStore interface for Primarch persistence.
 package store
 
-import "github.com/guaranaja/astartes-primaris/services/primarch/internal/domain"
+import (
+	"time"
+
+	"github.com/guaranaja/astartes-primaris/services/primarch/internal/domain"
+)
 
 // DataStore is the persistence interface for all Primarch data.
 // Implementations: MemStore (in-memory) and PGStore (PostgreSQL).
@@ -89,4 +93,18 @@ type DataStore interface {
 	GetCommand(id string) (*domain.Command, error)
 	ListPendingCommands(engineID string) []domain.Command
 	UpdateCommand(c *domain.Command) error
+
+	// ─── Trades ────────────────────────────────────────────
+	UpsertTrade(t *domain.Trade) (created bool, err error)
+	ListTrades(marineID string, since *time.Time, limit int) []domain.Trade
+
+	// ─── Positions ─────────────────────────────────────────
+	UpsertPosition(p *domain.Position) error
+	ListPositions(marineID string) []domain.Position
+
+	// ─── Account Snapshots ─────────────────────────────────
+	RecordAccountSnapshot(s *domain.AccountSnapshot) error
+
+	// ─── Market Bars ───────────────────────────────────────
+	UpsertBar(b *domain.MarketBar) (created bool, err error)
 }

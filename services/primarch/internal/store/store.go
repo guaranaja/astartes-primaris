@@ -30,6 +30,10 @@ type Store struct {
 	payments      []domain.Payment
 	holdings      map[string]*domain.Holding
 	commands      map[string]*domain.Command
+	trades        map[string]*domain.Trade
+	positions     map[string]*domain.Position // key: marine_id:broker:symbol
+	snapshots     []domain.AccountSnapshot
+	bars          map[string]*domain.MarketBar // key: symbol:timeframe:time
 }
 
 // New creates a new empty store.
@@ -46,6 +50,9 @@ func New() *Store {
 		expenses:    make(map[string]*domain.Expense),
 		holdings:    make(map[string]*domain.Holding),
 		commands:    make(map[string]*domain.Command),
+		trades:      make(map[string]*domain.Trade),
+		positions:   make(map[string]*domain.Position),
+		bars:        make(map[string]*domain.MarketBar),
 	}
 }
 
@@ -454,4 +461,89 @@ func (s *Store) UpdateCommand(c *domain.Command) error {
 	cp := *c
 	s.commands[c.ID] = &cp
 	return nil
+}
+
+// ─── Trades ────────────────────────────────────────────────
+
+func (s *Store) UpsertTrade(t *domain.Trade) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, exists := s.trades[t.ID]
+	cp := *t
+	s.trades[t.ID] = &cp
+	return !exists, nil
+}
+
+func (s *Store) ListTrades(marineID string, since *time.Time, limit int) []domain.Trade {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var out []domain.Trade
+	for _, t := range s.trades {
+		if marineID != "" && t.MarineID != marineID {
+			continue
+		}
+		if since != nil && t.ExitTime.Before(*since) {
+			continue
+		}
+		out = append(out, *t)
+	}
+	// Simple sort by exit time descending
+	for i := 0; i < len(out); i++ {
+		for j := i + 1; j < len(out); j++ {
+			if out[j].ExitTime.After(out[i].ExitTime) {
+				out[i], out[j] = out[j], out[i]
+			}
+		}
+	}
+	if limit > 0 && len(out) > limit {
+		out = out[:limit]
+	}
+	return out
+}
+
+// ─── Positions ─────────────────────────────────────────────
+
+func (s *Store) UpsertPosition(p *domain.Position) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	key := p.MarineID + ":" + p.BrokerAccountID + ":" + p.Symbol
+	cp := *p
+	s.positions[key] = &cp
+	return nil
+}
+
+func (s *Store) ListPositions(marineID string) []domain.Position {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var out []domain.Position
+	for _, p := range s.positions {
+		if marineID == "" || p.MarineID == marineID {
+			out = append(out, *p)
+		}
+	}
+	return out
+}
+
+// ─── Account Snapshots ─────────────────────────────────────
+
+func (s *Store) RecordAccountSnapshot(snap *domain.AccountSnapshot) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.snapshots = append(s.snapshots, *snap)
+	if len(s.snapshots) > 10000 {
+		s.snapshots = s.snapshots[len(s.snapshots)-10000:]
+	}
+	return nil
+}
+
+// ─── Market Bars ───────────────────────────────────────────
+
+func (s *Store) UpsertBar(b *domain.MarketBar) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	key := b.Symbol + ":" + b.Timeframe + ":" + b.Time.Format(time.RFC3339Nano)
+	_, exists := s.bars[key]
+	cp := *b
+	s.bars[key] = &cp
+	return !exists, nil
 }

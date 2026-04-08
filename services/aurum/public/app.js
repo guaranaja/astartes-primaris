@@ -410,10 +410,13 @@ const App = {
         <div class="form-row">
           <label>Asset Class</label>
           <select id="newFortressClass" class="input">
+            <option value="equities">Equities</option>
             <option value="futures">Futures</option>
             <option value="options">Options</option>
-            <option value="equities">Equities</option>
+            <option value="etf">ETFs</option>
+            <option value="fixed_income">Fixed Income</option>
             <option value="crypto">Crypto</option>
+            <option value="multi_asset">Multi-Asset</option>
           </select>
         </div>
         <button type="submit" class="btn btn-primary btn-lg">Create</button>
@@ -651,6 +654,7 @@ const App = {
     this.renderGoals();
     this.renderBilling();
     this.renderSummaryBanner();
+    this.renderPropDesk();
   },
 
   renderPhaseTracker() {
@@ -693,7 +697,7 @@ const App = {
   renderAccounts() {
     const el = document.getElementById('accountList');
     if (!this.state.accounts.length) {
-      el.innerHTML = '<div class="empty-state">No accounts yet. Add your prop accounts to start tracking.</div>';
+      el.innerHTML = '<div class="empty-state">No accounts yet. Add your trading accounts to start tracking.</div>';
       return;
     }
     el.innerHTML = this.state.accounts.map(a => {
@@ -716,7 +720,7 @@ const App = {
   renderWithdrawalAdvice() {
     const el = document.getElementById('withdrawalAdvice');
     if (!this.state.withdrawalAdvice.length) {
-      el.innerHTML = '<div class="empty-state">Add prop accounts to get withdrawal advice</div>';
+      el.innerHTML = '<div class="empty-state">Add accounts to get withdrawal advice</div>';
       return;
     }
     el.innerHTML = this.state.withdrawalAdvice.map(w => `
@@ -790,9 +794,12 @@ const App = {
       return;
     }
     // Sort by priority (1 = highest), then by completion status
+    // Firefly piggy banks use percentage field, store goals use status
     const sorted = [...this.state.goals].sort((a, b) => {
-      if (a.status === 'completed' && b.status !== 'completed') return 1;
-      if (b.status === 'completed' && a.status !== 'completed') return -1;
+      const aComplete = a.status === 'completed' || a.percentage >= 100;
+      const bComplete = b.status === 'completed' || b.percentage >= 100;
+      if (aComplete && !bComplete) return 1;
+      if (bComplete && !aComplete) return -1;
       return (a.priority || 3) - (b.priority || 3);
     });
     const categoryIcons = {
@@ -800,18 +807,22 @@ const App = {
       trading: '📈', debt: '💳', lifestyle: '🎯', business: '🏢',
     };
     el.innerHTML = sorted.map(g => {
-      const pct = g.target_amount > 0 ? Math.min((g.current_amount / g.target_amount) * 100, 100) : 0;
+      const isFirefly = !!g.source;
+      const pct = g.percentage || (g.target_amount > 0 ? Math.min((g.current_amount / g.target_amount) * 100, 100) : 0);
       const icon = g.icon || categoryIcons[g.category] || '🎯';
-      const priorityDots = Array.from({length: 5}, (_, i) =>
+      const isComplete = g.status === 'completed' || pct >= 100;
+      const priorityDots = !isFirefly ? Array.from({length: 5}, (_, i) =>
         `<span class="goal-priority-dot ${i < (6 - (g.priority || 3)) ? 'filled' : ''}"></span>`
-      ).join('');
+      ).join('') : '';
+      const notes = g.notes || g.description || '';
       return `
-        <div class="goal-card ${g.status}">
+        <div class="goal-card ${isComplete ? 'completed' : (g.status || 'active')}">
           <div class="goal-header">
             <span class="goal-name"><span class="goal-icon">${icon}</span> ${esc(g.name)}</span>
-            <span class="goal-category ${g.category}">${(g.category || '').replace('_', ' ')}</span>
+            ${isFirefly ? '<span class="expense-autopay" style="background:var(--blue);font-size:9px">CFO</span>' : ''}
+            <span class="goal-category ${g.category || ''}">${(g.category || '').replace('_', ' ')}</span>
           </div>
-          ${g.description ? `<div style="font-size:11px;color:var(--text-2);margin-bottom:6px">${esc(g.description)}</div>` : ''}
+          ${notes ? `<div style="font-size:11px;color:var(--text-2);margin-bottom:6px">${esc(notes)}</div>` : ''}
           <div class="goal-progress">
             <div class="goal-progress-bar">
               <div class="goal-progress-fill" style="width:${pct}%"></div>
@@ -822,11 +833,12 @@ const App = {
             <span>$${fmt(g.target_amount)}</span>
           </div>
           <div class="goal-footer">
-            <div class="goal-priority" title="Priority">${priorityDots}</div>
+            ${priorityDots ? `<div class="goal-priority" title="Priority">${priorityDots}</div>` : ''}
+            ${g.target_date ? `<span style="font-size:10px;color:var(--text-2)">Target: ${g.target_date}</span>` : ''}
             ${g.payouts_needed > 0 ? `<span class="goal-payouts-needed">${g.payouts_needed} payouts away</span>` : ''}
-            ${g.status === 'completed' ? '<span style="color:var(--green)">COMPLETED</span>' : ''}
+            ${isComplete ? '<span style="color:var(--green)">COMPLETED</span>' : ''}
             <div class="goal-actions">
-              ${g.status === 'active' ? `<button class="btn btn-sm" onclick="event.stopPropagation(); App.contributeGoal('${g.id}', '${esc(g.name)}')">+ Fund</button>` : ''}
+              ${!isFirefly && g.status === 'active' ? `<button class="btn btn-sm" onclick="event.stopPropagation(); App.contributeGoal('${g.id}', '${esc(g.name)}')">+ Fund</button>` : ''}
             </div>
           </div>
         </div>`;
@@ -847,18 +859,24 @@ const App = {
       el.innerHTML = '<div class="empty-state">No expenses tracked — add your bills</div>';
       return;
     }
-    el.innerHTML = this.state.expenses.map(e => `
-      <div class="expense-item">
-        <span class="expense-name">${esc(e.name)}</span>
-        <span class="expense-category">${esc(e.category)}</span>
-        <span class="expense-amount">$${fmt(e.amount)}</span>
-        <span class="expense-freq">${e.frequency}</span>
-        ${e.auto_pay ? '<span class="expense-autopay">AUTO</span>' : ''}
-        <div class="expense-actions">
-          <button class="btn btn-sm" onclick="event.stopPropagation(); App.payExpense('${e.id}', '${esc(e.name)}', ${e.amount})" title="Record payment">Pay</button>
-        </div>
-      </div>
-    `).join('');
+    el.innerHTML = this.state.expenses.map(e => {
+      // Handle both Firefly III bills (source, repeat_freq) and store expenses (category, frequency)
+      const isFirefly = !!e.source;
+      const freq = e.repeat_freq || e.frequency || '';
+      const cat = e.category || e.source || '';
+      return `
+        <div class="expense-item">
+          <span class="expense-name">${esc(e.name)}</span>
+          <span class="expense-category">${esc(cat)}</span>
+          <span class="expense-amount">$${fmt(e.amount)}</span>
+          <span class="expense-freq">${freq}</span>
+          ${e.auto_pay ? '<span class="expense-autopay">AUTO</span>' : ''}
+          ${isFirefly ? '<span class="expense-autopay" style="background:var(--blue)">CFO</span>' : ''}
+          ${!isFirefly ? `<div class="expense-actions">
+            <button class="btn btn-sm" onclick="event.stopPropagation(); App.payExpense('${e.id}', '${esc(e.name)}', ${e.amount})" title="Record payment">Pay</button>
+          </div>` : ''}
+        </div>`;
+    }).join('');
   },
 
   addGoal() {
@@ -953,6 +971,7 @@ const App = {
           <label>Source</label>
           <select id="contribSource" class="input">
             <option value="payout">Trading Payout</option>
+            <option value="dividends">Dividends / Interest</option>
             <option value="manual">Manual / Other Income</option>
             <option value="allocation">Budget Allocation</option>
           </select>
@@ -1076,6 +1095,7 @@ const App = {
           <label>Method</label>
           <select id="paymentMethod" class="input">
             <option value="trading_income">Trading Income</option>
+            <option value="dividends">Dividends / Interest</option>
             <option value="bank">Bank Account</option>
             <option value="manual">Manual / Cash</option>
           </select>
@@ -1125,17 +1145,24 @@ const App = {
           <div>
             <label>Broker</label>
             <select id="newAcctBroker" class="input">
+              <option value="ibkr">IBKR</option>
+              <option value="schwab">Schwab</option>
+              <option value="tastytrade">TastyTrade</option>
+              <option value="fidelity">Fidelity</option>
               <option value="apex">Apex</option>
               <option value="projectx">ProjectX</option>
-              <option value="ibkr">IBKR</option>
-              <option value="tastytrade">TastyTrade</option>
+              <option value="webull">Webull</option>
+              <option value="tradovate">Tradovate</option>
+              <option value="other">Other</option>
             </select>
           </div>
           <div>
             <label>Type</label>
             <select id="newAcctType" class="input">
-              <option value="prop">Prop (Funded)</option>
               <option value="personal">Personal</option>
+              <option value="retirement">Retirement (IRA/401k)</option>
+              <option value="prop">Prop (Funded)</option>
+              <option value="margin">Margin</option>
               <option value="paper">Paper</option>
             </select>
           </div>
@@ -1152,7 +1179,7 @@ const App = {
         </div>
         <div class="form-row">
           <label>Instruments</label>
-          <input type="text" id="newAcctInstruments" class="input" placeholder="MES, ES, NQ (comma separated)">
+          <input type="text" id="newAcctInstruments" class="input" placeholder="AAPL, ES, SPY, NQ (comma separated)">
         </div>
         <button type="submit" class="btn btn-primary btn-lg">Add Account</button>
       </form>
@@ -1184,7 +1211,7 @@ const App = {
   },
 
   recordPayout() {
-    const accounts = this.state.accounts.filter(a => a.type === 'prop' && a.status === 'active');
+    const accounts = this.state.accounts.filter(a => a.status === 'active');
     this.openModal(`
       <h3 style="margin-bottom: 16px">Record Payout</h3>
       <form onsubmit="App.submitPayout(event)" style="display:flex;flex-direction:column;gap:12px">
@@ -1192,7 +1219,7 @@ const App = {
           <label>Account</label>
           <select id="payoutAcct" class="input" required>
             ${accounts.map(a => `<option value="${a.id}">${esc(a.name)} ($${fmt(a.current_balance)})</option>`).join('')}
-            ${accounts.length === 0 ? '<option value="">No prop accounts</option>' : ''}
+            ${accounts.length === 0 ? '<option value="">No active accounts</option>' : ''}
           </select>
         </div>
         <div class="form-row">
@@ -1238,6 +1265,241 @@ const App = {
     }
   },
 
+  // ─── Render: Prop Desk ────────────────────────────────
+
+  renderPropDesk() {
+    const propAccounts = this.state.accounts.filter(a => a.type === 'prop');
+    const propPayouts = this.state.payouts.filter(p =>
+      propAccounts.some(a => a.id === p.account_id)
+    );
+    const propAdvice = this.state.withdrawalAdvice.filter(w =>
+      propAccounts.some(a => a.id === w.account_id || a.name === w.account_name)
+    );
+
+    this.renderPropBanner(propAccounts, propPayouts);
+    this.renderPropAccountCards(propAccounts);
+    this.renderPropWithdrawals(propAdvice);
+    this.renderPropPayoutTable(propAccounts, propPayouts);
+    this.renderPropMetrics(propAccounts, propPayouts);
+  },
+
+  renderPropBanner(accounts, payouts) {
+    const active = accounts.filter(a => a.status === 'active');
+    const totalCapital = active.reduce((s, a) => s + a.current_balance, 0);
+    const totalPnl = accounts.reduce((s, a) => s + a.total_pnl, 0);
+    const availProfit = active.reduce((s, a) => s + Math.max(0, a.current_balance - a.initial_balance), 0);
+    const lifetimePayouts = accounts.reduce((s, a) => s + a.total_payouts, 0);
+    const avgSplit = active.length > 0
+      ? active.reduce((s, a) => s + a.profit_split, 0) / active.length
+      : 0;
+
+    setText('propAcctCount', accounts.length);
+    setText('propTotalCapital', '$' + fmt(totalCapital));
+    const pnlEl = document.getElementById('propTotalPnl');
+    if (pnlEl) {
+      pnlEl.textContent = (totalPnl >= 0 ? '+$' : '-$') + fmt(Math.abs(totalPnl));
+      pnlEl.style.color = totalPnl >= 0 ? 'var(--green)' : 'var(--red)';
+    }
+    setText('propAvailProfit', '$' + fmt(availProfit));
+    setText('propLifetimePayouts', '$' + fmt(lifetimePayouts));
+    setText('propAvgSplit', Math.round(avgSplit * 100) + '%');
+  },
+
+  renderPropAccountCards(accounts) {
+    const el = document.getElementById('propAccountCards');
+    if (!accounts.length) {
+      el.innerHTML = '<div class="empty-state">No prop accounts — add funded accounts to track</div>';
+      return;
+    }
+
+    el.innerHTML = accounts.map(a => {
+      const profit = a.current_balance - a.initial_balance;
+      const drawdownPct = a.initial_balance > 0
+        ? ((a.initial_balance - Math.min(a.current_balance, a.initial_balance)) / a.initial_balance * 100)
+        : 0;
+      const profitPct = a.initial_balance > 0 ? (profit / a.initial_balance * 100) : 0;
+      const isActive = a.status === 'active';
+      const statusColor = isActive ? 'var(--green)' : a.status === 'blown' ? 'var(--red)' : 'var(--text-3)';
+
+      return `
+        <div class="prop-account-card ${a.status}">
+          <div class="prop-acct-header">
+            <div>
+              <span class="prop-acct-name">${esc(a.name)}</span>
+              <span class="prop-acct-broker">${esc(a.broker)}</span>
+            </div>
+            <span class="prop-acct-status" style="color:${statusColor}">${a.status.toUpperCase()}</span>
+          </div>
+
+          <div class="prop-acct-balances">
+            <div class="prop-acct-bal">
+              <span class="prop-bal-label">Balance</span>
+              <span class="prop-bal-value">$${fmt(a.current_balance)}</span>
+            </div>
+            <div class="prop-acct-bal">
+              <span class="prop-bal-label">Initial</span>
+              <span class="prop-bal-value" style="color:var(--text-2)">$${fmt(a.initial_balance)}</span>
+            </div>
+            <div class="prop-acct-bal">
+              <span class="prop-bal-label">P&L</span>
+              <span class="prop-bal-value ${profit >= 0 ? 'positive' : 'negative'}">${profit >= 0 ? '+' : ''}$${fmt(profit)}</span>
+            </div>
+            <div class="prop-acct-bal">
+              <span class="prop-bal-label">Return</span>
+              <span class="prop-bal-value ${profitPct >= 0 ? 'positive' : 'negative'}">${profitPct >= 0 ? '+' : ''}${profitPct.toFixed(1)}%</span>
+            </div>
+          </div>
+
+          <div class="prop-acct-details">
+            <div class="prop-detail-row">
+              <span>Profit Split</span>
+              <span style="color:var(--gold)">${Math.round(a.profit_split * 100)}% / ${Math.round((1 - a.profit_split) * 100)}%</span>
+            </div>
+            <div class="prop-detail-row">
+              <span>Your Take (of P&L)</span>
+              <span class="${profit >= 0 ? 'positive' : 'negative'}">$${fmt(Math.max(0, profit) * a.profit_split)}</span>
+            </div>
+            <div class="prop-detail-row">
+              <span>Firm Take</span>
+              <span style="color:var(--text-2)">$${fmt(Math.max(0, profit) * (1 - a.profit_split))}</span>
+            </div>
+            <div class="prop-detail-row">
+              <span>Payouts</span>
+              <span>${a.payout_count} ($${fmt(a.total_payouts)} net)</span>
+            </div>
+            <div class="prop-detail-row">
+              <span>Instruments</span>
+              <span style="font-family:var(--font-mono);font-size:11px">${(a.instruments || []).join(', ') || '—'}</span>
+            </div>
+          </div>
+
+          ${isActive && profit > 500 ? `
+            <div class="prop-acct-actions">
+              <button class="btn btn-sm btn-primary" onclick="App.recordPayoutForAccount('${a.id}', '${esc(a.name)}', ${a.current_balance})">Request Payout</button>
+            </div>
+          ` : ''}
+        </div>`;
+    }).join('');
+  },
+
+  renderPropWithdrawals(advice) {
+    const el = document.getElementById('propWithdrawals');
+    if (!advice.length) {
+      el.innerHTML = '<div class="empty-state">Add prop accounts to see withdrawal advice</div>';
+      return;
+    }
+    el.innerHTML = advice.map(w => `
+      <div class="withdrawal-card urgency-${w.urgency}">
+        <div class="withdrawal-header">
+          <span class="withdrawal-account">${esc(w.account_name)}</span>
+          <span class="withdrawal-urgency ${w.urgency}">${w.urgency}</span>
+        </div>
+        <div class="withdrawal-reason">${esc(w.reason)}</div>
+        ${w.recommended_amount > 0 ? `
+          <div class="withdrawal-amount">Withdraw: $${fmt(w.recommended_amount)}</div>
+          <div class="withdrawal-splits">
+            ${(w.allocations || []).map(a => `
+              <span class="withdrawal-split">${a.category}: $${fmt(a.amount)}</span>
+            `).join('')}
+          </div>
+        ` : ''}
+      </div>
+    `).join('');
+  },
+
+  renderPropPayoutTable(accounts, payouts) {
+    const tbody = document.getElementById('propPayoutBody');
+    if (!payouts.length) {
+      tbody.innerHTML = '<tr><td colspan="7" class="empty-state">No payouts recorded</td></tr>';
+      return;
+    }
+
+    const acctMap = {};
+    accounts.forEach(a => { acctMap[a.id] = a; });
+
+    const sorted = [...payouts].sort((a, b) =>
+      new Date(b.requested_at) - new Date(a.requested_at)
+    );
+
+    tbody.innerHTML = sorted.map(p => {
+      const acct = acctMap[p.account_id];
+      const split = acct ? Math.round(acct.profit_split * 100) : '—';
+      const statusClass = p.status === 'completed' ? 'positive' : '';
+      return `
+        <tr>
+          <td>${formatDate(p.requested_at)}</td>
+          <td>${esc(acct ? acct.name : p.account_id)}</td>
+          <td>$${fmt(p.gross_amount)}</td>
+          <td>${split}%</td>
+          <td class="positive">$${fmt(p.net_amount)}</td>
+          <td>${esc(p.destination)}</td>
+          <td class="${statusClass}">${(p.status || 'completed').toUpperCase()}</td>
+        </tr>`;
+    }).join('');
+  },
+
+  renderPropMetrics(accounts, payouts) {
+    const now = new Date();
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const yearStart = new Date(now.getFullYear(), 0, 1);
+
+    const monthPayouts = payouts.filter(p => new Date(p.requested_at) >= monthStart);
+    const yearPayouts = payouts.filter(p => new Date(p.requested_at) >= yearStart);
+
+    const monthlyGross = monthPayouts.reduce((s, p) => s + p.gross_amount, 0);
+    const monthlyNet = monthPayouts.reduce((s, p) => s + p.net_amount, 0);
+    const firmFeesYtd = yearPayouts.reduce((s, p) => s + (p.gross_amount - p.net_amount), 0);
+
+    const active = accounts.filter(a => a.status === 'active');
+    const closed = accounts.filter(a => ['blown', 'closed', 'graduated'].includes(a.status));
+
+    const best = active.length > 0
+      ? active.reduce((best, a) => a.total_pnl > best.total_pnl ? a : best, active[0])
+      : null;
+
+    const avgPayoutsPerMonth = payouts.length > 0
+      ? (payouts.length / Math.max(1, monthsBetween(
+          new Date(payouts[payouts.length - 1].requested_at), now
+        ))).toFixed(1)
+      : '0';
+
+    setText('propMonthlyGross', '$' + fmt(monthlyGross));
+    setText('propMonthlyNet', '$' + fmt(monthlyNet));
+    setText('propFirmFees', '$' + fmt(firmFeesYtd));
+    setText('propMonthPayouts', monthPayouts.length);
+    setText('propActiveCount', active.length);
+    setText('propClosedCount', closed.length);
+    setText('propBestAcct', best ? esc(best.name) : '—');
+    setText('propPayoutRate', avgPayoutsPerMonth + '/mo');
+  },
+
+  recordPayoutForAccount(accountId, accountName, balance) {
+    this.openModal(`
+      <h3 style="margin-bottom: 16px">Request Payout — ${accountName}</h3>
+      <form onsubmit="App.submitPayout(event)" style="display:flex;flex-direction:column;gap:12px">
+        <input type="hidden" id="payoutAcct" value="${accountId}">
+        <div class="form-row">
+          <label>Gross Amount (before split)</label>
+          <input type="number" id="payoutGross" class="input" placeholder="1000" required>
+        </div>
+        <div class="form-row">
+          <label>Destination</label>
+          <select id="payoutDest" class="input">
+            <option value="bank">Bank Account</option>
+            <option value="personal_trading">Personal Trading Account</option>
+            <option value="savings">Savings</option>
+            <option value="bills">Bills</option>
+          </select>
+        </div>
+        <div class="form-row">
+          <label>Note (optional)</label>
+          <input type="text" id="payoutNote" class="input" placeholder="Monthly withdrawal">
+        </div>
+        <button type="submit" class="btn btn-primary btn-lg">Record Payout</button>
+      </form>
+    `);
+  },
+
   // ─── Navigation ───────────────────────────────────────
 
   bindNav() {
@@ -1270,8 +1532,8 @@ const App = {
       }
 
       // Number keys switch views
-      if (e.key >= '1' && e.key <= '5') {
-        const views = ['throne', 'tactical', 'forge', 'performance', 'council', 'arsenal'];
+      if (e.key >= '1' && e.key <= '7') {
+        const views = ['throne', 'tactical', 'forge', 'performance', 'council', 'prop', 'arsenal'];
         this.switchView(views[parseInt(e.key) - 1]);
         return;
       }
@@ -1331,7 +1593,8 @@ const App = {
       { icon: '⚒', label: 'Forge Console', key: '3', action: () => this.switchView('forge') },
       { icon: '📊', label: 'Performance', key: '4', action: () => this.switchView('performance') },
       { icon: '⚖', label: 'Council', key: '5', action: () => this.switchView('council') },
-      { icon: '⎔', label: 'Arsenal (Holdings + Wheel)', key: '6', action: () => this.switchView('arsenal') },
+      { icon: '⊕', label: 'Prop Desk', key: '6', action: () => this.switchView('prop') },
+      { icon: '⎔', label: 'Arsenal (Holdings + Wheel)', key: '7', action: () => this.switchView('arsenal') },
       { icon: '+', label: 'Create Fortress', key: '', action: () => this.createFortress() },
       { icon: '⊘', label: 'Kill Switch', key: 'Ctrl+K', action: () => this.killSwitch() },
       { icon: '↻', label: 'Refresh Data', key: 'R', action: () => this.loadData() },
@@ -1671,6 +1934,10 @@ function formatDate(ts) {
 function fmt(n) {
   if (n == null) return '0';
   return Number(n).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+}
+
+function monthsBetween(d1, d2) {
+  return (d2.getFullYear() - d1.getFullYear()) * 12 + d2.getMonth() - d1.getMonth() + 1;
 }
 
 function setText(id, val) {

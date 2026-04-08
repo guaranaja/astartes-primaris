@@ -33,8 +33,11 @@
       <button class="nav-btn" data-view="council" data-key="5">
         <span class="nav-key">5</span> Council
       </button>
-      <button class="nav-btn" data-view="arsenal" data-key="6">
-        <span class="nav-key">6</span> Arsenal
+      <button class="nav-btn" data-view="prop" data-key="6">
+        <span class="nav-key">6</span> Prop Desk
+      </button>
+      <button class="nav-btn" data-view="arsenal" data-key="7">
+        <span class="nav-key">7</span> Arsenal
       </button>
     </nav>
     <div class="topbar-right">
@@ -57,12 +60,12 @@
       <!-- Summary Banner -->
       <div class="summary-banner" id="summaryBanner">
         <div class="summary-item">
-          <span class="summary-label">Fortresses</span>
+          <span class="summary-label">Portfolios</span>
           <span class="summary-value" id="sumFortresses">0</span>
         </div>
         <div class="summary-divider"></div>
         <div class="summary-item">
-          <span class="summary-label">Total Marines</span>
+          <span class="summary-label">Strategies</span>
           <span class="summary-value" id="sumMarines">0</span>
         </div>
         <div class="summary-divider"></div>
@@ -72,7 +75,7 @@
         </div>
         <div class="summary-divider"></div>
         <div class="summary-item">
-          <span class="summary-label">Lifetime Payouts</span>
+          <span class="summary-label">Total Payouts</span>
           <span class="summary-value" id="sumPayouts">$0</span>
         </div>
         <div class="summary-divider"></div>
@@ -169,7 +172,7 @@
             </div>
             <div class="form-row">
               <label>Symbol</label>
-              <input type="text" id="forgeSymbol" class="input" value="ES" placeholder="ES, NQ, CL...">
+              <input type="text" id="forgeSymbol" class="input" value="ES" placeholder="ES, NQ, AAPL, TSLA...">
             </div>
             <div class="form-row two-col">
               <div>
@@ -197,8 +200,8 @@
               <div class="coming-soon-icon">///</div>
               <div class="coming-soon-title">Forge Console</div>
               <div class="coming-soon-desc">
-                Submit backtests and strategy analyses once the Vindicare strategies are imported
-                from astartes-futures. Forge will connect to the Strategos backtesting engine.
+                Submit backtests and strategy analyses across futures, equities, and options.
+                Forge will connect to the Strategos backtesting engine.
               </div>
             </div>
           </div>
@@ -331,7 +334,7 @@
               <h2>Withdrawal Advisor</h2>
             </div>
             <div id="withdrawalAdvice" class="withdrawal-list">
-              <div class="empty-state">Add prop accounts to get withdrawal advice</div>
+              <div class="empty-state">Add accounts to get withdrawal advice</div>
             </div>
           </div>
 
@@ -366,7 +369,7 @@
                 <span class="stat-value" id="bizMonthlyNet">$0</span>
               </div>
               <div class="stat">
-                <span class="stat-label">Personal Acct</span>
+                <span class="stat-label">Portfolio Value</span>
                 <span class="stat-value" id="bizPersonalValue">$0</span>
               </div>
               <div class="stat">
@@ -382,7 +385,7 @@
                 <span class="stat-value" id="bizProfitDays">—</span>
               </div>
               <div class="stat">
-                <span class="stat-label">Accounts Blown</span>
+                <span class="stat-label">Accounts Closed</span>
                 <span class="stat-value" id="bizBlown">0</span>
               </div>
             </div>
@@ -435,6 +438,136 @@
             </div>
             <div id="expenseList" class="expense-list">
               <div class="empty-state">No expenses tracked yet</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ VIEW: Prop Desk ═══════════════════════════════ -->
+    <div class="view" id="view-prop">
+
+      <!-- Prop Aggregate Banner -->
+      <div class="summary-banner" id="propBanner">
+        <div class="summary-item">
+          <span class="summary-label">Prop Accounts</span>
+          <span class="summary-value" id="propAcctCount">0</span>
+        </div>
+        <div class="summary-divider"></div>
+        <div class="summary-item">
+          <span class="summary-label">Total Capital</span>
+          <span class="summary-value" id="propTotalCapital">$0</span>
+        </div>
+        <div class="summary-divider"></div>
+        <div class="summary-item">
+          <span class="summary-label">Total P&L</span>
+          <span class="summary-value" id="propTotalPnl">$0</span>
+        </div>
+        <div class="summary-divider"></div>
+        <div class="summary-item">
+          <span class="summary-label">Available Profit</span>
+          <span class="summary-value" id="propAvailProfit" style="color:var(--green)">$0</span>
+        </div>
+        <div class="summary-divider"></div>
+        <div class="summary-item">
+          <span class="summary-label">Lifetime Payouts</span>
+          <span class="summary-value" id="propLifetimePayouts" style="color:var(--gold)">$0</span>
+        </div>
+        <div class="summary-divider"></div>
+        <div class="summary-item">
+          <span class="summary-label">Avg Split</span>
+          <span class="summary-value" id="propAvgSplit">0%</span>
+        </div>
+      </div>
+
+      <div class="prop-layout">
+        <!-- Left: Account Cards -->
+        <div class="prop-left">
+          <div class="section">
+            <div class="section-header">
+              <h2>Prop Accounts</h2>
+              <button class="btn btn-sm" onclick="App.addAccount()">+ Add Account</button>
+            </div>
+            <div id="propAccountCards" class="prop-account-cards">
+              <div class="empty-state">No prop accounts — add funded accounts to track</div>
+            </div>
+          </div>
+
+          <!-- Withdrawal Readiness -->
+          <div class="section">
+            <div class="section-header">
+              <h2>Withdrawal Readiness</h2>
+            </div>
+            <div id="propWithdrawals" class="withdrawal-list">
+              <div class="empty-state">Add prop accounts to see withdrawal advice</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Right: Payout History + Rules -->
+        <div class="prop-right">
+          <!-- Payout History -->
+          <div class="section">
+            <div class="section-header">
+              <h2>Payout History</h2>
+              <button class="btn btn-sm" onclick="App.recordPayout()">+ Record Payout</button>
+            </div>
+            <div class="table-wrap">
+              <table class="data-table" id="propPayoutTable">
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Account</th>
+                    <th>Gross</th>
+                    <th>Split</th>
+                    <th>Net</th>
+                    <th>Destination</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody id="propPayoutBody">
+                  <tr><td colspan="7" class="empty-state">No payouts recorded</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Prop Metrics -->
+          <div class="section">
+            <div class="section-header"><h2>Prop Metrics</h2></div>
+            <div class="stats-grid">
+              <div class="stat">
+                <span class="stat-label">Monthly Gross</span>
+                <span class="stat-value" id="propMonthlyGross">$0</span>
+              </div>
+              <div class="stat">
+                <span class="stat-label">Monthly Net</span>
+                <span class="stat-value" id="propMonthlyNet">$0</span>
+              </div>
+              <div class="stat">
+                <span class="stat-label">Firm Fees (YTD)</span>
+                <span class="stat-value" id="propFirmFees">$0</span>
+              </div>
+              <div class="stat">
+                <span class="stat-label">Payouts This Month</span>
+                <span class="stat-value" id="propMonthPayouts">0</span>
+              </div>
+              <div class="stat">
+                <span class="stat-label">Accounts Active</span>
+                <span class="stat-value" id="propActiveCount">0</span>
+              </div>
+              <div class="stat">
+                <span class="stat-label">Accounts Closed</span>
+                <span class="stat-value" id="propClosedCount">0</span>
+              </div>
+              <div class="stat">
+                <span class="stat-label">Best Account</span>
+                <span class="stat-value" id="propBestAcct">—</span>
+              </div>
+              <div class="stat">
+                <span class="stat-label">Payout Rate</span>
+                <span class="stat-value" id="propPayoutRate">—</span>
+              </div>
             </div>
           </div>
         </div>

@@ -55,6 +55,18 @@ type UnifiedBill struct {
 	Currency string  `json:"currency"`
 }
 
+// UnifiedGoal is a normalized savings goal.
+type UnifiedGoal struct {
+	ID            string  `json:"id"`
+	Name          string  `json:"name"`
+	TargetAmount  float64 `json:"target_amount"`
+	CurrentAmount float64 `json:"current_amount"`
+	Percentage    float64 `json:"percentage"`
+	Source        string  `json:"source"`
+	Notes         string  `json:"notes,omitempty"`
+	TargetDate    string  `json:"target_date,omitempty"`
+}
+
 // FinancialOverview is the unified snapshot Council presents.
 type FinancialOverview struct {
 	// Net worth
@@ -260,6 +272,194 @@ func (c *CouncilCFO) loadMonarchData(o *FinancialOverview, start, end time.Time)
 	}
 
 	return nil
+}
+
+// ─── Council Integration Methods ──────────────────────────
+// These methods power the Council endpoints, replacing the in-memory store
+// for household finance data while keeping trading data in Primarch.
+
+// GetBills returns bills from Firefly III as unified bills.
+func (c *CouncilCFO) GetBills() ([]UnifiedBill, error) {
+	if c.firefly == nil {
+		return nil, fmt.Errorf("cfo engine not configured")
+	}
+	bills, err := c.firefly.ListBills()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]UnifiedBill, len(bills))
+	for i, b := range bills {
+		out[i] = UnifiedBill{
+			ID:       "ff-" + b.ID,
+			Name:     b.Name,
+			Amount:   (b.AmountMin + b.AmountMax) / 2,
+			Source:   SourcePersonal,
+			Repeat:   b.Repeat,
+			Currency: b.Currency,
+		}
+	}
+	return out, nil
+}
+
+// GetBudgets returns budgets from Firefly III with current month spending.
+func (c *CouncilCFO) GetBudgets() ([]UnifiedBudget, error) {
+	if c.firefly == nil {
+		return nil, fmt.Errorf("cfo engine not configured")
+	}
+	budgets, err := c.firefly.ListBudgets()
+	if err != nil {
+		return nil, err
+	}
+
+	now := time.Now()
+	monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
+	monthEnd := monthStart.AddDate(0, 1, -1)
+
+	var out []UnifiedBudget
+	for _, b := range budgets {
+		if !b.Active {
+			continue
+		}
+		ub := UnifiedBudget{
+			Category: b.Name,
+			Source:   SourcePersonal,
+		}
+		// Fetch limits for current month
+		limits, err := c.firefly.GetBudgetLimits(b.ID, monthStart, monthEnd)
+		if err != nil {
+			c.logger.Warn("budget limits failed", "budget", b.Name, "error", err)
+		} else if len(limits) > 0 {
+			ub.Budgeted = limits[0].Amount
+			ub.Spent = limits[0].Spent
+		}
+		out = append(out, ub)
+	}
+	return out, nil
+}
+
+// GetGoals returns piggy banks from Firefly III as unified goals.
+func (c *CouncilCFO) GetGoals() ([]UnifiedGoal, error) {
+	if c.firefly == nil {
+		return nil, fmt.Errorf("cfo engine not configured")
+	}
+	piggyBanks, err := c.firefly.ListPiggyBanks()
+	if err != nil {
+		return nil, err
+	}
+	var out []UnifiedGoal
+	for _, pb := range piggyBanks {
+		if !pb.Active {
+			continue
+		}
+		out = append(out, UnifiedGoal{
+			ID:            "ff-" + pb.ID,
+			Name:          pb.Name,
+			TargetAmount:  pb.TargetAmount,
+			CurrentAmount: pb.CurrentAmount,
+			Percentage:    pb.Percentage,
+			Source:        SourcePersonal,
+			Notes:         pb.Notes,
+			TargetDate:    pb.TargetDate,
+		})
+	}
+	return out, nil
+}
+
+// MonthlyFinanceMetrics holds income/expense/net for the current month.
+type MonthlyFinanceMetrics struct {
+	Income   float64 `json:"income"`
+	Expenses float64 `json:"expenses"`
+	Net      float64 `json:"net"`
+}
+
+// GetMonthlyMetrics returns current month income/expenses from Firefly III.
+func (c *CouncilCFO) GetMonthlyMetrics() (*MonthlyFinanceMetrics, error) {
+	if c.firefly == nil {
+		return nil, fmt.Errorf("cfo engine not configured")
+	}
+	now := time.Now()
+	monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
+	summary, err := c.firefly.GetSummary(monthStart, now)
+	if err != nil {
+		return nil, err
+	}
+	m := &MonthlyFinanceMetrics{}
+	for k, v := range summary {
+		switch {
+		case k == "earned" || k == "earned-in-budgets":
+			m.Income += v.Value
+		case k == "spent":
+			m.Expenses += -v.Value // Firefly reports spending as negative
+		}
+	}
+	m.Net = m.Income - m.Expenses
+	return m, nil
+}
+
+// BillingSummary holds unified billing data for the Council screen.
+// Field names match what the Strategium frontend expects.
+type BillingSummary struct {
+	TotalExpenses   float64       `json:"total_expenses"`
+	TotalPaid       float64       `json:"total_paid"`
+	TotalPending    float64       `json:"total_pending"`
+	TradingCoverage float64       `json:"trading_coverage"`
+	Source          string        `json:"source"`
+	Bills           []UnifiedBill `json:"bills"`
+}
+
+// GetBillingSummary builds a billing overview from Firefly III.
+func (c *CouncilCFO) GetBillingSummary(tradingIncome float64) (*BillingSummary, error) {
+	bills, err := c.GetBills()
+	if err != nil {
+		return nil, err
+	}
+	s := &BillingSummary{Bills: bills, Source: SourcePersonal}
+	for _, b := range bills {
+		monthly := b.Amount
+		switch b.Repeat {
+		case "weekly":
+			monthly = b.Amount * 4.33
+		case "half-year":
+			monthly = b.Amount / 6
+		case "yearly":
+			monthly = b.Amount / 12
+		case "quarterly":
+			monthly = b.Amount / 3
+		}
+		s.TotalExpenses += monthly
+	}
+	s.TotalPending = s.TotalExpenses - s.TotalPaid
+	if s.TotalExpenses > 0 && tradingIncome > 0 {
+		s.TradingCoverage = tradingIncome / s.TotalExpenses
+		if s.TradingCoverage > 1 {
+			s.TradingCoverage = 1
+		}
+	}
+	return s, nil
+}
+
+// RecordPayoutTransaction creates a deposit transaction in Firefly III
+// when a trading payout is recorded. Tags it for tracking.
+func (c *CouncilCFO) RecordPayoutTransaction(accountName string, amount float64, destination string) error {
+	if c.firefly == nil {
+		return fmt.Errorf("cfo engine not configured")
+	}
+	txn := FFTransactionStore{
+		Type:            "deposit",
+		Description:     fmt.Sprintf("Trading payout: %s", accountName),
+		Date:            time.Now().Format("2006-01-02"),
+		Amount:          fmt.Sprintf("%.2f", amount),
+		SourceName:      accountName,
+		DestinationName: destination,
+		CategoryName:    "Trading Income",
+		Tags:            []string{"trading-payout", "astartes"},
+	}
+	return c.firefly.CreateTransaction(txn)
+}
+
+// Available returns true if at least the Firefly III client is configured.
+func (c *CouncilCFO) Available() bool {
+	return c.firefly != nil
 }
 
 // PingAll checks connectivity to all configured sources.

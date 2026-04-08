@@ -39,8 +39,8 @@ func NewPGStore(dsn string, logger *slog.Logger) (*PGStore, error) {
 
 // ensureSchema creates tables that Primarch manages directly.
 func (s *PGStore) ensureSchema() {
-	_, err := s.db.Exec(`
-		CREATE TABLE IF NOT EXISTS commands (
+	stmts := []string{
+		`CREATE TABLE IF NOT EXISTS commands (
 			id            TEXT PRIMARY KEY,
 			engine_id     TEXT NOT NULL,
 			command       TEXT NOT NULL,
@@ -50,11 +50,38 @@ func (s *PGStore) ensureSchema() {
 			error_message TEXT,
 			created_at    TIMESTAMPTZ DEFAULT now(),
 			updated_at    TIMESTAMPTZ DEFAULT now()
-		);
-		CREATE INDEX IF NOT EXISTS idx_commands_engine_status ON commands (engine_id, status);
-	`)
-	if err != nil {
-		s.logger.Error("ensure schema", "error", err)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_commands_engine_status ON commands (engine_id, status)`,
+		`CREATE TABLE IF NOT EXISTS trades (
+			id                TEXT PRIMARY KEY,
+			marine_id         TEXT NOT NULL,
+			broker_account_id TEXT NOT NULL,
+			symbol            TEXT NOT NULL,
+			side              TEXT NOT NULL,
+			quantity          DOUBLE PRECISION NOT NULL,
+			entry_price       DOUBLE PRECISION NOT NULL,
+			exit_price        DOUBLE PRECISION NOT NULL,
+			entry_time        TIMESTAMPTZ NOT NULL,
+			exit_time         TIMESTAMPTZ NOT NULL,
+			pnl               DOUBLE PRECISION NOT NULL DEFAULT 0,
+			fees              DOUBLE PRECISION NOT NULL DEFAULT 0,
+			duration_ms       BIGINT DEFAULT 0
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_trades_marine ON trades (marine_id, exit_time DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_trades_exit ON trades (exit_time DESC)`,
+		`CREATE TABLE IF NOT EXISTS account_snapshots (
+			broker_account_id TEXT NOT NULL,
+			balance           DOUBLE PRECISION NOT NULL,
+			daily_pnl         DOUBLE PRECISION NOT NULL DEFAULT 0,
+			total_pnl         DOUBLE PRECISION NOT NULL DEFAULT 0,
+			timestamp         TIMESTAMPTZ NOT NULL,
+			PRIMARY KEY (broker_account_id, timestamp)
+		)`,
+	}
+	for _, stmt := range stmts {
+		if _, err := s.db.Exec(stmt); err != nil {
+			s.logger.Error("ensure schema", "error", err, "stmt", stmt[:40])
+		}
 	}
 }
 
@@ -1160,6 +1187,123 @@ func (s *PGStore) UpdateCommand(c *domain.Command) error {
 		return fmt.Errorf("command %q not found", c.ID)
 	}
 	return nil
+}
+
+// ─── Trades ────────────────────────────────────────────────
+
+func (s *PGStore) UpsertTrade(t *domain.Trade) (bool, error) {
+	res, err := s.db.Exec(`INSERT INTO trades (id, marine_id, broker_account_id, symbol, side, quantity, entry_price, exit_price, entry_time, exit_time, pnl, fees, duration_ms)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+		ON CONFLICT (id) DO UPDATE SET pnl=$11, fees=$12, exit_price=$8, exit_time=$10, duration_ms=$13`,
+		t.ID, t.MarineID, t.BrokerAccountID, t.Symbol, t.Side, t.Quantity, t.EntryPrice, t.ExitPrice, t.EntryTime, t.ExitTime, t.PnL, t.Fees, t.DurationMs)
+	if err != nil {
+		return false, err
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
+}
+
+func (s *PGStore) ListTrades(marineID string, since *time.Time, limit int) []domain.Trade {
+	query := `SELECT id, marine_id, broker_account_id, symbol, side, quantity, entry_price, exit_price, entry_time, exit_time, pnl, fees, duration_ms FROM trades WHERE 1=1`
+	var args []interface{}
+	argN := 1
+	if marineID != "" {
+		query += fmt.Sprintf(" AND marine_id=$%d", argN)
+		args = append(args, marineID)
+		argN++
+	}
+	if since != nil {
+		query += fmt.Sprintf(" AND exit_time>=$%d", argN)
+		args = append(args, *since)
+		argN++
+	}
+	query += " ORDER BY exit_time DESC"
+	if limit > 0 {
+		query += fmt.Sprintf(" LIMIT $%d", argN)
+		args = append(args, limit)
+	}
+
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		s.logger.Error("list trades", "error", err)
+		return nil
+	}
+	defer rows.Close()
+
+	var out []domain.Trade
+	for rows.Next() {
+		var t domain.Trade
+		if err := rows.Scan(&t.ID, &t.MarineID, &t.BrokerAccountID, &t.Symbol, &t.Side, &t.Quantity, &t.EntryPrice, &t.ExitPrice, &t.EntryTime, &t.ExitTime, &t.PnL, &t.Fees, &t.DurationMs); err != nil {
+			s.logger.Error("scan trade", "error", err)
+			continue
+		}
+		out = append(out, t)
+	}
+	return out
+}
+
+// ─── Positions ─────────────────────────────────────────────
+
+func (s *PGStore) UpsertPosition(p *domain.Position) error {
+	_, err := s.db.Exec(`INSERT INTO positions (marine_id, broker_account_id, symbol, quantity, average_price, unrealized_pnl, realized_pnl, updated_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,now())
+		ON CONFLICT (marine_id, broker_account_id, symbol) DO UPDATE SET quantity=$4, average_price=$5, unrealized_pnl=$6, realized_pnl=$7, updated_at=now()`,
+		p.MarineID, p.BrokerAccountID, p.Symbol, p.Quantity, p.AveragePrice, p.UnrealizedPnL, p.RealizedPnL)
+	return err
+}
+
+func (s *PGStore) ListPositions(marineID string) []domain.Position {
+	query := `SELECT marine_id, broker_account_id, symbol, quantity, average_price, unrealized_pnl, realized_pnl FROM positions`
+	var args []interface{}
+	if marineID != "" {
+		query += " WHERE marine_id=$1"
+		args = append(args, marineID)
+	}
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		s.logger.Error("list positions", "error", err)
+		return nil
+	}
+	defer rows.Close()
+
+	var out []domain.Position
+	for rows.Next() {
+		var p domain.Position
+		if err := rows.Scan(&p.MarineID, &p.BrokerAccountID, &p.Symbol, &p.Quantity, &p.AveragePrice, &p.UnrealizedPnL, &p.RealizedPnL); err != nil {
+			s.logger.Error("scan position", "error", err)
+			continue
+		}
+		out = append(out, p)
+	}
+	return out
+}
+
+// ─── Account Snapshots ─────────────────────────────────────
+
+func (s *PGStore) RecordAccountSnapshot(snap *domain.AccountSnapshot) error {
+	_, err := s.db.Exec(`INSERT INTO account_snapshots (broker_account_id, balance, daily_pnl, total_pnl, timestamp)
+		VALUES ($1,$2,$3,$4,$5)
+		ON CONFLICT (broker_account_id, timestamp) DO UPDATE SET balance=$2, daily_pnl=$3, total_pnl=$4`,
+		snap.BrokerAccountID, snap.Balance, snap.DailyPnL, snap.TotalPnL, snap.Timestamp)
+	return err
+}
+
+// ─── Market Bars ───────────────────────────────────────────
+
+func (s *PGStore) UpsertBar(b *domain.MarketBar) (bool, error) {
+	source := b.Source
+	if source == "" {
+		source = "engine"
+	}
+	res, err := s.db.Exec(`INSERT INTO market_bars (time, symbol, timeframe, source, open, high, low, close, volume, vwap, trade_count)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+		ON CONFLICT (symbol, timeframe, time, source) DO NOTHING`,
+		b.Time, b.Symbol, b.Timeframe, source, b.Open, b.High, b.Low, b.Close, b.Volume, b.VWAP, b.TradeCount)
+	if err != nil {
+		return false, err
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
 }
 
 func nullStr(s string) interface{} {

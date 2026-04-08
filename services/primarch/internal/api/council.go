@@ -178,12 +178,46 @@ func (s *Server) handleRecordPayout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.logger.Info("payout recorded", "account", p.AccountID, "gross", p.GrossAmount, "destination", p.Destination)
+
+	// Dual-write: create deposit transaction in Firefly III
+	if s.cfo != nil && s.cfo.Available() {
+		acct, _ := s.store.GetAccount(p.AccountID)
+		acctName := p.AccountID
+		if acct != nil {
+			acctName = acct.Name
+		}
+		dest := p.Destination
+		if dest == "" {
+			dest = "Personal Checking"
+		}
+		if err := s.cfo.RecordPayoutTransaction(acctName, p.NetAmount, dest); err != nil {
+			s.logger.Warn("failed to record payout in Firefly III", "error", err)
+		} else {
+			s.logger.Info("payout synced to Firefly III", "account", acctName, "amount", p.NetAmount)
+		}
+	}
+
 	writeJSON(w, http.StatusCreated, p)
 }
 
 // ─── Budget ─────────────────────────────────────────────────
 
 func (s *Server) handleGetBudget(w http.ResponseWriter, r *http.Request) {
+	// Merge Firefly III budgets with store allocations
+	if s.cfo != nil && s.cfo.Available() {
+		budgets, err := s.cfo.GetBudgets()
+		if err == nil {
+			storeBudget := s.store.GetBudget()
+			writeJSON(w, http.StatusOK, map[string]interface{}{
+				"month":       storeBudget.Month,
+				"budgets":     budgets,
+				"allocations": storeBudget.Allocations,
+				"source":      "firefly",
+			})
+			return
+		}
+		s.logger.Warn("firefly budgets unavailable, falling back to store", "error", err)
+	}
 	writeJSON(w, http.StatusOK, s.store.GetBudget())
 }
 
@@ -231,12 +265,32 @@ func (s *Server) handleWithdrawalAdvice(w http.ResponseWriter, r *http.Request) 
 // ─── Business Metrics ───────────────────────────────────────
 
 func (s *Server) handleBusinessMetrics(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, s.store.GetBusinessMetrics())
+	metrics := s.store.GetBusinessMetrics()
+	// Enrich with Firefly III monthly data
+	if s.cfo != nil && s.cfo.Available() {
+		fm, err := s.cfo.GetMonthlyMetrics()
+		if err == nil {
+			metrics.MonthlyExpenses = fm.Expenses
+			metrics.MonthlyNetIncome = fm.Net
+		} else {
+			s.logger.Warn("firefly metrics unavailable", "error", err)
+		}
+	}
+	writeJSON(w, http.StatusOK, metrics)
 }
 
 // ─── Goals ──────────────────────────────────────────────────
 
 func (s *Server) handleListGoals(w http.ResponseWriter, r *http.Request) {
+	// Prefer Firefly III piggy banks for goals
+	if s.cfo != nil && s.cfo.Available() {
+		goals, err := s.cfo.GetGoals()
+		if err == nil {
+			writeJSON(w, http.StatusOK, goals)
+			return
+		}
+		s.logger.Warn("firefly goals unavailable, falling back to store", "error", err)
+	}
 	writeJSON(w, http.StatusOK, s.store.ListGoals())
 }
 
@@ -315,6 +369,15 @@ func (s *Server) handleContributeGoal(w http.ResponseWriter, r *http.Request) {
 // ─── Billing & Expenses ─────────────────────────────────────
 
 func (s *Server) handleListExpenses(w http.ResponseWriter, r *http.Request) {
+	// Prefer Firefly III bills over in-memory expenses
+	if s.cfo != nil && s.cfo.Available() {
+		bills, err := s.cfo.GetBills()
+		if err == nil {
+			writeJSON(w, http.StatusOK, bills)
+			return
+		}
+		s.logger.Warn("firefly bills unavailable, falling back to store", "error", err)
+	}
 	writeJSON(w, http.StatusOK, s.store.ListExpenses())
 }
 
@@ -381,5 +444,15 @@ func (s *Server) handlePayExpense(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleBillingSummary(w http.ResponseWriter, r *http.Request) {
+	// Prefer Firefly III billing summary
+	if s.cfo != nil && s.cfo.Available() {
+		tradingIncome := s.store.GetBudget().TradingIncome
+		summary, err := s.cfo.GetBillingSummary(tradingIncome)
+		if err == nil {
+			writeJSON(w, http.StatusOK, summary)
+			return
+		}
+		s.logger.Warn("firefly billing unavailable, falling back to store", "error", err)
+	}
 	writeJSON(w, http.StatusOK, s.store.GetBillingSummary())
 }

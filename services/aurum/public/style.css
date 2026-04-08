@@ -1431,10 +1431,117 @@ select.input option { background: var(--bg-1); }
 .positive { color: var(--green); }
 .negative { color: var(--red); }
 
+/* ─── Prop Desk View ────────────────────────────────────── */
+
+.prop-layout {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--gap);
+}
+.prop-left { display: flex; flex-direction: column; gap: var(--gap); }
+.prop-right { display: flex; flex-direction: column; gap: var(--gap); }
+
+.prop-account-cards { display: flex; flex-direction: column; gap: 12px; }
+
+.prop-account-card {
+  padding: 16px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  transition: border-color 0.2s;
+}
+.prop-account-card.active { border-left: 3px solid var(--green); }
+.prop-account-card.blown { border-left: 3px solid var(--red); opacity: 0.6; }
+.prop-account-card.closed { border-left: 3px solid var(--text-3); opacity: 0.6; }
+.prop-account-card.graduated { border-left: 3px solid var(--gold); opacity: 0.7; }
+
+.prop-acct-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 12px;
+}
+.prop-acct-name {
+  font-weight: 700;
+  font-size: 14px;
+}
+.prop-acct-broker {
+  font-size: 10px;
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--gold);
+  margin-left: 8px;
+}
+.prop-acct-status {
+  font-size: 10px;
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  font-weight: 600;
+}
+
+.prop-acct-balances {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  padding: 10px 0;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 10px;
+}
+.prop-acct-bal {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.prop-bal-label {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-3);
+}
+.prop-bal-value {
+  font-family: var(--font-mono);
+  font-size: 14px;
+  font-weight: 600;
+}
+.prop-bal-value.positive { color: var(--green); }
+.prop-bal-value.negative { color: var(--red); }
+
+.prop-acct-details {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.prop-detail-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11px;
+  padding: 2px 0;
+}
+.prop-detail-row > span:first-child {
+  color: var(--text-2);
+}
+.prop-detail-row > span:last-child {
+  font-family: var(--font-mono);
+  color: var(--text-0);
+}
+
+.prop-acct-actions {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  gap: 8px;
+}
+
 /* ─── Responsive ─────────────────────────────────────────── */
 
 @media (max-width: 1200px) {
   .council-grid { grid-template-columns: 1fr; }
+  .prop-layout { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 900px) {
