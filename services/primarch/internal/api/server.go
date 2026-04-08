@@ -111,6 +111,15 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/v1/engine/register", s.handleEngineRegister)
 	s.mux.HandleFunc("POST /api/v1/engine/heartbeat", s.handleEngineHeartbeat)
 	s.mux.HandleFunc("POST /api/v1/engine/commands/{id}/complete", s.handleEngineCommandComplete)
+	s.mux.HandleFunc("POST /api/v1/engine/trades", s.handleEngineTrades)
+	s.mux.HandleFunc("POST /api/v1/engine/positions", s.handleEnginePositions)
+	s.mux.HandleFunc("POST /api/v1/engine/account-snapshot", s.handleEngineAccountSnapshot)
+	s.mux.HandleFunc("POST /api/v1/engine/bars", s.handleEngineBars)
+
+	// Data queries
+	s.mux.HandleFunc("GET /api/v1/trades", s.handleListTrades)
+	s.mux.HandleFunc("GET /api/v1/positions", s.handleListPositions)
+	s.mux.HandleFunc("GET /api/v1/performance", s.handlePerformance)
 
 	// Council
 	s.registerCouncilRoutes()
