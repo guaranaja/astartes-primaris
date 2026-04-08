@@ -82,6 +82,10 @@ type DataStore interface {
 	ListPayments(expenseID string) []domain.Payment
 	GetBillingSummary() domain.BillingSummary
 
+	// ─── Payout Allocations ────────────────────────────
+	RecordAllocation(a domain.PayoutAllocation) error
+	ListAllocationsForMonth(year int, month int) []domain.PayoutAllocation
+
 	// ─── Holdings ──────────────────────────────────────
 	ListHoldings() []domain.Holding
 	CreateHolding(h *domain.Holding) error

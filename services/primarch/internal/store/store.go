@@ -33,7 +33,8 @@ type Store struct {
 	trades        map[string]*domain.Trade
 	positions     map[string]*domain.Position // key: marine_id:broker:symbol
 	snapshots     []domain.AccountSnapshot
-	bars          map[string]*domain.MarketBar // key: symbol:timeframe:time
+	bars                map[string]*domain.MarketBar // key: symbol:timeframe:time
+	payoutAllocations   []domain.PayoutAllocation
 }
 
 // New creates a new empty store.
@@ -362,6 +363,30 @@ func (s *Store) ActivateKillSwitch(scope string) {
 			m.Schedule.Enabled = false
 		}
 	}
+}
+
+// ─── Payout Allocations ────────────────────────────────────
+
+func (s *Store) RecordAllocation(a domain.PayoutAllocation) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if a.CreatedAt.IsZero() {
+		a.CreatedAt = time.Now()
+	}
+	s.payoutAllocations = append(s.payoutAllocations, a)
+	return nil
+}
+
+func (s *Store) ListAllocationsForMonth(year int, month int) []domain.PayoutAllocation {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var out []domain.PayoutAllocation
+	for _, a := range s.payoutAllocations {
+		if a.CreatedAt.Year() == year && int(a.CreatedAt.Month()) == month {
+			out = append(out, a)
+		}
+	}
+	return out
 }
 
 // ─── Holdings ───────────────────────────────────────────────

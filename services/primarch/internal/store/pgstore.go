@@ -1067,6 +1067,46 @@ func calcPayoutsNeededFromList(remaining float64, payouts []domain.Payout, alloc
 	return -1
 }
 
+// ─── Payout Allocations ─────────────────────────────────
+
+func (s *PGStore) RecordAllocation(a domain.PayoutAllocation) error {
+	if a.CreatedAt.IsZero() {
+		a.CreatedAt = time.Now()
+	}
+	_, err := s.db.Exec(`INSERT INTO payout_allocations (id, payout_id, category, amount, note, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6)`,
+		a.ID, a.PayoutID, a.Category, a.Amount, a.Note, a.CreatedAt)
+	if err != nil {
+		return fmt.Errorf("record allocation: %w", err)
+	}
+	return nil
+}
+
+func (s *PGStore) ListAllocationsForMonth(year int, month int) []domain.PayoutAllocation {
+	start := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, time.UTC)
+	end := start.AddDate(0, 1, 0)
+	rows, err := s.db.Query(`SELECT id, payout_id, category, amount, note, created_at
+		FROM payout_allocations WHERE created_at >= $1 AND created_at < $2
+		ORDER BY created_at DESC`, start, end)
+	if err != nil {
+		s.logger.Error("list allocations", "error", err)
+		return nil
+	}
+	defer rows.Close()
+	var out []domain.PayoutAllocation
+	for rows.Next() {
+		var a domain.PayoutAllocation
+		var payoutID sql.NullString
+		if err := rows.Scan(&a.ID, &payoutID, &a.Category, &a.Amount, &a.Note, &a.CreatedAt); err != nil {
+			s.logger.Error("scan allocation", "error", err)
+			continue
+		}
+		a.PayoutID = payoutID.String
+		out = append(out, a)
+	}
+	return out
+}
+
 // ─── Holdings ────────────────────────────────────────────
 
 func (s *PGStore) ListHoldings() []domain.Holding {

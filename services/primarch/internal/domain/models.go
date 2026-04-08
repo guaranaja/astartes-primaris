@@ -584,6 +584,16 @@ type Payout struct {
 	Note        string     `json:"note,omitempty"`
 }
 
+// PayoutAllocation records where a payout was allocated (ledger entry, no money movement).
+type PayoutAllocation struct {
+	ID        string    `json:"id"`
+	PayoutID  string    `json:"payout_id,omitempty"` // optional link to Payout
+	Category  string    `json:"category"`            // "family", "bills", "savings", "trading_capital", "taxes"
+	Amount    float64   `json:"amount"`
+	Note      string    `json:"note,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
 // ─── Budget Integration ─────────────────────────────────────
 
 // BudgetCategory tracks spending/income in a category.
