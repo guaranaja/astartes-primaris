@@ -87,18 +87,62 @@ func (s *Server) handleEngineAccountSnapshot(w http.ResponseWriter, r *http.Requ
 	}
 
 	for i := range req.Accounts {
-		if req.Accounts[i].Timestamp.IsZero() {
-			req.Accounts[i].Timestamp = time.Now()
+		snap := &req.Accounts[i]
+		if snap.Timestamp.IsZero() {
+			snap.Timestamp = time.Now()
 		}
-		if err := s.store.RecordAccountSnapshot(&req.Accounts[i]); err != nil {
+		if err := s.store.RecordAccountSnapshot(snap); err != nil {
 			s.logger.Warn("record account snapshot failed", "error", err)
+		}
+
+		// Auto-upsert Council trading account from snapshot data
+		acctType := domain.AccountProp
+		if snap.AccountType == "personal" {
+			acctType = domain.AccountPersonal
+		} else if snap.AccountType == "paper" {
+			acctType = domain.AccountPaper
+		}
+		status := snap.Status
+		if status == "" {
+			status = "active"
+		}
+		name := snap.Name
+		if name == "" {
+			name = snap.BrokerAccountID
+		}
+		broker := snap.Broker
+		if broker == "" {
+			broker = "unknown"
+		}
+		profitSplit := snap.ProfitSplit
+		if profitSplit == 0 {
+			profitSplit = 0.90 // default prop split
+		}
+
+		acct := &domain.TradingAccount{
+			ID:             snap.BrokerAccountID,
+			Name:           name,
+			Broker:         broker,
+			Type:           acctType,
+			InitialBalance: snap.InitialBalance,
+			CurrentBalance: snap.Balance,
+			TotalPnL:       snap.TotalPnL,
+			TotalPayouts:   snap.TotalPayouts,
+			PayoutCount:    snap.PayoutCount,
+			ProfitSplit:    profitSplit,
+			Status:         status,
+			Instruments:    snap.Instruments,
+		}
+		if err := s.store.CreateAccount(acct); err != nil {
+			// Already exists — update
+			s.store.UpdateAccount(acct)
 		}
 	}
 
 	s.logger.Info("engine account snapshots recorded", "engine_id", req.EngineID, "count", len(req.Accounts))
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"status":    "ok",
-		"snapshots": len(req.Accounts),
+		"accounts_synced": len(req.Accounts),
 	})
 }
 

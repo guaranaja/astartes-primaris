@@ -321,6 +321,21 @@ type AccountSnapshot struct {
 	DailyPnL        float64   `json:"daily_pnl"`
 	TotalPnL        float64   `json:"total_pnl"`
 	Timestamp       time.Time `json:"timestamp"`
+	// Optional fields for auto-creating Council trading accounts
+	Name            string   `json:"name,omitempty"`
+	Broker          string   `json:"broker,omitempty"`
+	AccountType     string   `json:"account_type,omitempty"`     // "prop", "personal", "paper"
+	InitialBalance  float64  `json:"initial_balance,omitempty"`
+	ProfitSplit     float64  `json:"profit_split,omitempty"`     // e.g. 0.90
+	Status          string   `json:"status,omitempty"`           // "active", "blown", "closed"
+	Instruments     []string `json:"instruments,omitempty"`
+	MaxLossLimit    float64  `json:"max_loss_limit,omitempty"`
+	ProfitTarget    float64  `json:"profit_target,omitempty"`
+	DailyLossLimit  float64  `json:"daily_loss_limit,omitempty"`
+	TotalPayouts    float64  `json:"total_payouts,omitempty"`
+	PayoutCount     int      `json:"payout_count,omitempty"`
+	WinningDays     int      `json:"winning_days,omitempty"`
+	TotalTradingDays int     `json:"total_trading_days,omitempty"`
 }
 
 // MarketBar represents an OHLCV bar.
