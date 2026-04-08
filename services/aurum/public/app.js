@@ -9,6 +9,10 @@ const App = {
     marines: [],
     events: [],
     connected: false,
+    // Performance
+    performance: null,
+    trades: [],
+    positions: [],
     // Council
     roadmap: null,
     accounts: [],
@@ -149,14 +153,22 @@ const App = {
 
   async loadData() {
     try {
-      const [fortresses, marines] = await Promise.all([
+      const [fortresses, marines, performance, trades, positions] = await Promise.all([
         this.api('/fortresses'),
         this.api('/marines'),
+        this.api('/performance').catch(() => null),
+        this.api('/trades').catch(() => []),
+        this.api('/positions').catch(() => []),
       ]);
       this.state.fortresses = fortresses || [];
       this.state.marines = marines || [];
+      this.state.performance = performance;
+      this.state.trades = trades || [];
+      this.state.positions = positions || [];
       this.renderThrone();
       this.renderTactical();
+      this.renderPerformance();
+      this.renderStatusCards();
     } catch (e) {
       // Primarch might not be running yet
     }
@@ -187,6 +199,25 @@ const App = {
     setText('sumFortresses', status.fortresses || 0);
     setText('sumMarines', status.marines?.total || 0);
     setText('sumActive', status.marines?.active || 0);
+  },
+
+  renderStatusCards() {
+    const p = this.state.performance;
+    if (!p) return;
+
+    // Today's P&L — find today in daily_pnl
+    const today = new Date().toISOString().slice(0, 10);
+    const todayData = (p.daily_pnl || []).find(d => d.date === today);
+    const todayPnl = todayData ? todayData.pnl : 0;
+    const todayTrades = todayData ? todayData.trade_count : 0;
+
+    const pnlEl = document.getElementById('totalPnl');
+    if (pnlEl) {
+      pnlEl.textContent = (todayPnl >= 0 ? '+$' : '-$') + fmt(Math.abs(todayPnl));
+      pnlEl.style.color = todayPnl >= 0 ? 'var(--green)' : 'var(--red)';
+    }
+    setText('tradesToday', todayTrades);
+    setText('winRate', Math.round(p.win_rate * 100) + '%');
   },
 
   renderSummaryBanner() {
@@ -279,7 +310,10 @@ const App = {
             </div>
           </div>
           <div style="font-family: var(--font-mono); font-size: 11px; color: var(--text-2)">
-            ${m.status}
+            <div>${m.status}</div>
+            ${m.parameters?.daily_pnl ? `<div style="color:${parseFloat(m.parameters.daily_pnl) >= 0 ? 'var(--green)' : 'var(--red)'}">${m.parameters.daily_pnl.startsWith('-') ? '' : '+'}$${fmt(Math.abs(parseFloat(m.parameters.daily_pnl)))}</div>` : ''}
+            ${m.parameters?.trades_today ? `<div>${m.parameters.trades_today} trades</div>` : ''}
+            ${m.parameters?.regime ? `<div>${m.parameters.regime}</div>` : ''}
           </div>
           <div class="marine-actions">
             ${m.status === 'disabled'
@@ -326,6 +360,133 @@ const App = {
           <div class="gauge-value">${pct}%</div>
         </div>`;
     }).join('');
+  },
+
+  // ─── Render: Performance ──────────────────────────────
+
+  renderPerformance() {
+    const p = this.state.performance;
+    if (!p) return;
+
+    // Stats grid
+    setText('statReturn', (p.total_pnl >= 0 ? '+$' : '-$') + fmt(Math.abs(p.total_pnl)));
+    const returnEl = document.getElementById('statReturn');
+    if (returnEl) returnEl.style.color = p.total_pnl >= 0 ? 'var(--green)' : 'var(--red)';
+    setText('statWinRate', Math.round(p.win_rate * 100) + '%');
+    setText('statProfitFactor', p.profit_factor.toFixed(2));
+    setText('statDrawdown', '-$' + fmt(Math.abs(p.max_drawdown)));
+    setText('statTotalTrades', p.total_trades);
+    setText('statAvgWin', '+$' + fmt(p.avg_win));
+    setText('statAvgLoss', '-$' + fmt(Math.abs(p.avg_loss)));
+    const durationSec = Math.round((p.avg_duration_ms || 0) / 1000);
+    const dMin = Math.floor(durationSec / 60);
+    const dSec = durationSec % 60;
+    setText('statSharpe', `${dMin}m ${dSec}s`); // Repurpose Sharpe for avg duration
+
+    // Trade journal
+    this.renderTradeJournal();
+
+    // Equity curve — daily cumulative P&L
+    this.renderEquityCurve();
+  },
+
+  renderTradeJournal() {
+    const tbody = document.querySelector('#tradeJournal tbody');
+    if (!tbody) return;
+    const trades = this.state.trades.slice(0, 50);
+    if (!trades.length) {
+      tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--text-3)">No trades synced yet</td></tr>';
+      return;
+    }
+    tbody.innerHTML = trades.map(t => {
+      const pnlColor = t.pnl >= 0 ? 'var(--green)' : 'var(--red)';
+      const pnlStr = (t.pnl >= 0 ? '+' : '') + '$' + Math.abs(t.pnl).toFixed(2);
+      return `<tr>
+        <td>${formatDate(t.exit_time)} ${formatTime(t.exit_time)}</td>
+        <td>${esc(t.marine_id)}</td>
+        <td>${esc(t.symbol)}</td>
+        <td>${t.side}</td>
+        <td>${t.quantity}</td>
+        <td>$${Number(t.entry_price).toFixed(2)}</td>
+        <td>$${Number(t.exit_price).toFixed(2)}</td>
+        <td style="color:${pnlColor};font-weight:600">${pnlStr}</td>
+      </tr>`;
+    }).join('');
+  },
+
+  renderEquityCurve() {
+    const container = document.getElementById('equityChart');
+    if (!container) return;
+    const p = this.state.performance;
+    if (!p || !p.daily_pnl || !p.daily_pnl.length) return;
+
+    // Sort daily P&L by date
+    const days = [...p.daily_pnl].sort((a, b) => a.date.localeCompare(b.date));
+
+    // Build cumulative equity
+    let cum = 0;
+    const points = days.map(d => {
+      cum += d.pnl;
+      return { date: d.date, cum, pnl: d.pnl, trades: d.trade_count };
+    });
+
+    // Simple SVG chart
+    const w = 800, h = 200, pad = 40;
+    const maxY = Math.max(...points.map(p => p.cum), 0);
+    const minY = Math.min(...points.map(p => p.cum), 0);
+    const rangeY = maxY - minY || 1;
+
+    const xStep = (w - pad * 2) / Math.max(points.length - 1, 1);
+    const toX = i => pad + i * xStep;
+    const toY = v => pad + (1 - (v - minY) / rangeY) * (h - pad * 2);
+
+    const pathD = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${toX(i).toFixed(1)} ${toY(p.cum).toFixed(1)}`).join(' ');
+    const areaD = pathD + ` L ${toX(points.length - 1).toFixed(1)} ${toY(0).toFixed(1)} L ${toX(0).toFixed(1)} ${toY(0).toFixed(1)} Z`;
+
+    // Calendar grid below
+    const calendar = this.renderDailyCalendar(days);
+
+    container.innerHTML = `
+      <svg viewBox="0 0 ${w} ${h}" style="width:100%;height:auto;max-height:220px">
+        <defs>
+          <linearGradient id="eqGrad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="var(--green)" stop-opacity="0.3"/>
+            <stop offset="100%" stop-color="var(--green)" stop-opacity="0"/>
+          </linearGradient>
+        </defs>
+        <!-- Zero line -->
+        <line x1="${pad}" y1="${toY(0)}" x2="${w - pad}" y2="${toY(0)}" stroke="var(--border)" stroke-dasharray="4"/>
+        <!-- Area -->
+        <path d="${areaD}" fill="url(#eqGrad)"/>
+        <!-- Line -->
+        <path d="${pathD}" fill="none" stroke="var(--green)" stroke-width="2"/>
+        <!-- Points -->
+        ${points.map((p, i) => `<circle cx="${toX(i)}" cy="${toY(p.cum)}" r="3" fill="var(--green)" stroke="var(--bg)" stroke-width="1.5">
+          <title>${p.date}: ${p.pnl >= 0 ? '+' : ''}$${p.pnl.toFixed(0)} (${p.trades} trades)\nCumulative: $${p.cum.toFixed(0)}</title>
+        </circle>`).join('')}
+        <!-- Labels -->
+        <text x="${pad}" y="${h - 5}" fill="var(--text-3)" font-size="10">${points[0]?.date.slice(5) || ''}</text>
+        <text x="${w - pad}" y="${h - 5}" fill="var(--text-3)" font-size="10" text-anchor="end">${points[points.length - 1]?.date.slice(5) || ''}</text>
+        <text x="${pad - 5}" y="${toY(maxY) + 4}" fill="var(--text-3)" font-size="10" text-anchor="end">$${fmt(maxY)}</text>
+        <text x="${pad - 5}" y="${toY(minY) + 4}" fill="var(--text-3)" font-size="10" text-anchor="end">$${fmt(minY)}</text>
+      </svg>
+      ${calendar}
+    `;
+  },
+
+  renderDailyCalendar(days) {
+    if (!days || !days.length) return '';
+    const rows = days.map(d => {
+      const pnlColor = d.pnl >= 0 ? 'var(--green)' : 'var(--red)';
+      const pnlStr = (d.pnl >= 0 ? '+' : '') + '$' + Math.abs(d.pnl).toFixed(0);
+      const dow = new Date(d.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short' });
+      return `<div class="daily-pnl-cell" style="border-left: 3px solid ${pnlColor}; padding: 4px 8px; margin: 2px 0;">
+        <span style="color:var(--text-3);width:70px;display:inline-block">${d.date.slice(5)} ${dow}</span>
+        <span style="color:${pnlColor};font-weight:600;width:80px;display:inline-block;text-align:right">${pnlStr}</span>
+        <span style="color:var(--text-3);margin-left:8px">${d.trades} trade${d.trades !== 1 ? 's' : ''}</span>
+      </div>`;
+    }).join('');
+    return `<div style="margin-top:12px;max-height:200px;overflow-y:auto;font-size:12px;font-family:var(--font-mono)">${rows}</div>`;
   },
 
   // ─── Render: Event Feed ───────────────────────────────
