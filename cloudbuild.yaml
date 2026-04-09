@@ -131,6 +131,7 @@ steps:
       - --platform=managed
       - --port=8080
       - --set-env-vars=ENVIRONMENT=${_ENVIRONMENT},PRIMARCH_URL=https://primarch-${_ENVIRONMENT}-1044819155969.${_REGION}.run.app
+      - --set-secrets=PRIMARCH_SERVICE_TOKEN=primarch-service-token:latest
       - --allow-unauthenticated
       - --quiet
     waitFor: [push-aurum]

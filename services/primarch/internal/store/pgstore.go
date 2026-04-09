@@ -40,6 +40,51 @@ func NewPGStore(dsn string, logger *slog.Logger) (*PGStore, error) {
 // ensureSchema creates tables that Primarch manages directly.
 func (s *PGStore) ensureSchema() {
 	stmts := []string{
+		// ── Core hierarchy ──
+		`CREATE TABLE IF NOT EXISTS fortresses (
+			id          TEXT PRIMARY KEY,
+			name        TEXT NOT NULL,
+			asset_class TEXT NOT NULL,
+			metadata    JSONB DEFAULT '{}',
+			created_at  TIMESTAMPTZ DEFAULT now(),
+			updated_at  TIMESTAMPTZ DEFAULT now()
+		)`,
+		`CREATE TABLE IF NOT EXISTS companies (
+			id          TEXT PRIMARY KEY,
+			fortress_id TEXT NOT NULL REFERENCES fortresses(id),
+			name        TEXT NOT NULL,
+			type        TEXT NOT NULL DEFAULT 'battle',
+			risk_limits JSONB DEFAULT '{}',
+			created_at  TIMESTAMPTZ DEFAULT now(),
+			updated_at  TIMESTAMPTZ DEFAULT now()
+		)`,
+		`CREATE TABLE IF NOT EXISTS marines (
+			id                TEXT PRIMARY KEY,
+			company_id        TEXT NOT NULL REFERENCES companies(id),
+			name              TEXT NOT NULL,
+			strategy_name     TEXT NOT NULL,
+			strategy_version  TEXT NOT NULL DEFAULT '',
+			broker_account_id TEXT,
+			status            TEXT NOT NULL DEFAULT 'dormant',
+			schedule          JSONB DEFAULT '{}',
+			parameters        JSONB DEFAULT '{}',
+			resources         JSONB DEFAULT '{}',
+			created_at        TIMESTAMPTZ DEFAULT now(),
+			updated_at        TIMESTAMPTZ DEFAULT now()
+		)`,
+		`CREATE TABLE IF NOT EXISTS marine_cycles (
+			id                TEXT PRIMARY KEY,
+			marine_id         TEXT NOT NULL,
+			wake_at           TIMESTAMPTZ,
+			sleep_at          TIMESTAMPTZ,
+			status            TEXT,
+			signals_generated INT DEFAULT 0,
+			orders_submitted  INT DEFAULT 0,
+			duration_ms       BIGINT DEFAULT 0,
+			error_message     TEXT
+		)`,
+
+		// ── Commands ──
 		`CREATE TABLE IF NOT EXISTS commands (
 			id            TEXT PRIMARY KEY,
 			engine_id     TEXT NOT NULL,
@@ -52,6 +97,8 @@ func (s *PGStore) ensureSchema() {
 			updated_at    TIMESTAMPTZ DEFAULT now()
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_commands_engine_status ON commands (engine_id, status)`,
+
+		// ── Trades ──
 		`CREATE TABLE IF NOT EXISTS trades (
 			id                TEXT PRIMARY KEY,
 			marine_id         TEXT NOT NULL,
@@ -70,6 +117,21 @@ func (s *PGStore) ensureSchema() {
 		`ALTER TABLE trades ADD COLUMN IF NOT EXISTS metadata JSONB DEFAULT '{}'`,
 		`CREATE INDEX IF NOT EXISTS idx_trades_marine ON trades (marine_id, exit_time DESC)`,
 		`CREATE INDEX IF NOT EXISTS idx_trades_exit ON trades (exit_time DESC)`,
+
+		// ── Positions ──
+		`CREATE TABLE IF NOT EXISTS positions (
+			marine_id         TEXT NOT NULL,
+			broker_account_id TEXT NOT NULL,
+			symbol            TEXT NOT NULL,
+			quantity          DOUBLE PRECISION NOT NULL DEFAULT 0,
+			average_price     DOUBLE PRECISION NOT NULL DEFAULT 0,
+			unrealized_pnl    DOUBLE PRECISION NOT NULL DEFAULT 0,
+			realized_pnl      DOUBLE PRECISION NOT NULL DEFAULT 0,
+			updated_at        TIMESTAMPTZ DEFAULT now(),
+			PRIMARY KEY (marine_id, broker_account_id, symbol)
+		)`,
+
+		// ── Account Snapshots ──
 		`CREATE TABLE IF NOT EXISTS account_snapshots (
 			broker_account_id TEXT NOT NULL,
 			balance           DOUBLE PRECISION NOT NULL,
@@ -77,6 +139,197 @@ func (s *PGStore) ensureSchema() {
 			total_pnl         DOUBLE PRECISION NOT NULL DEFAULT 0,
 			timestamp         TIMESTAMPTZ NOT NULL,
 			PRIMARY KEY (broker_account_id, timestamp)
+		)`,
+
+		// ── Trading Accounts (Prop Desk) ──
+		`CREATE TABLE IF NOT EXISTS trading_accounts (
+			id                   TEXT PRIMARY KEY,
+			name                 TEXT NOT NULL,
+			broker               TEXT NOT NULL,
+			type                 TEXT NOT NULL DEFAULT 'prop',
+			account_number       TEXT,
+			initial_balance      DOUBLE PRECISION NOT NULL DEFAULT 0,
+			current_balance      DOUBLE PRECISION NOT NULL DEFAULT 0,
+			total_pnl            DOUBLE PRECISION NOT NULL DEFAULT 0,
+			total_payouts        DOUBLE PRECISION NOT NULL DEFAULT 0,
+			payout_count         INT NOT NULL DEFAULT 0,
+			profit_split         DOUBLE PRECISION NOT NULL DEFAULT 0.90,
+			status               TEXT NOT NULL DEFAULT 'active',
+			instruments          JSONB DEFAULT '[]',
+			max_loss_limit       DOUBLE PRECISION DEFAULT 0,
+			profit_target        DOUBLE PRECISION DEFAULT 0,
+			daily_pnl            DOUBLE PRECISION DEFAULT 0,
+			trailing_dd          DOUBLE PRECISION DEFAULT 0,
+			mll_headroom         DOUBLE PRECISION DEFAULT 0,
+			mll_usage_pct        DOUBLE PRECISION DEFAULT 0,
+			combine_progress_pct DOUBLE PRECISION DEFAULT 0,
+			withdrawal_available DOUBLE PRECISION DEFAULT 0,
+			account_phase        TEXT DEFAULT '',
+			combine_number       INT DEFAULT 0,
+			combine_start_date   TEXT DEFAULT '',
+			combine_pass_date    TEXT DEFAULT '',
+			funded_date          TEXT DEFAULT '',
+			blown_date           TEXT DEFAULT '',
+			best_day_pnl         DOUBLE PRECISION DEFAULT 0,
+			consistency_pct      DOUBLE PRECISION DEFAULT 0,
+			avg_daily_pnl        DOUBLE PRECISION DEFAULT 0,
+			overall_win_rate     DOUBLE PRECISION DEFAULT 0,
+			winning_days         INT DEFAULT 0,
+			total_trading_days   INT DEFAULT 0,
+			created_at           TIMESTAMPTZ DEFAULT now(),
+			updated_at           TIMESTAMPTZ DEFAULT now()
+		)`,
+
+		// ── Payouts ──
+		`CREATE TABLE IF NOT EXISTS payouts (
+			id           TEXT PRIMARY KEY,
+			account_id   TEXT NOT NULL,
+			gross_amount DOUBLE PRECISION NOT NULL,
+			net_amount   DOUBLE PRECISION NOT NULL,
+			destination  TEXT NOT NULL DEFAULT 'bank',
+			status       TEXT NOT NULL DEFAULT 'completed',
+			requested_at TIMESTAMPTZ DEFAULT now(),
+			completed_at TIMESTAMPTZ,
+			note         TEXT
+		)`,
+
+		// ── Payout Allocations ──
+		`CREATE TABLE IF NOT EXISTS payout_allocations (
+			id         TEXT PRIMARY KEY,
+			payout_id  TEXT,
+			category   TEXT NOT NULL,
+			amount     DOUBLE PRECISION NOT NULL,
+			note       TEXT,
+			created_at TIMESTAMPTZ DEFAULT now()
+		)`,
+
+		// ── Budget & Allocations ──
+		`CREATE TABLE IF NOT EXISTS budget (
+			id         TEXT PRIMARY KEY,
+			data       JSONB NOT NULL,
+			updated_at TIMESTAMPTZ DEFAULT now()
+		)`,
+		`CREATE TABLE IF NOT EXISTS allocations (
+			category   TEXT PRIMARY KEY,
+			percentage DOUBLE PRECISION NOT NULL DEFAULT 0,
+			amount     DOUBLE PRECISION NOT NULL DEFAULT 0
+		)`,
+
+		// ── Roadmap ──
+		`CREATE TABLE IF NOT EXISTS roadmap (
+			id            TEXT PRIMARY KEY,
+			current_phase TEXT NOT NULL DEFAULT 'initiate',
+			data          JSONB NOT NULL,
+			updated_at    TIMESTAMPTZ DEFAULT now()
+		)`,
+
+		// ── Goals ──
+		`CREATE TABLE IF NOT EXISTS goals (
+			id            TEXT PRIMARY KEY,
+			name          TEXT NOT NULL,
+			description   TEXT,
+			category      TEXT NOT NULL DEFAULT 'savings',
+			target_amount DOUBLE PRECISION NOT NULL DEFAULT 0,
+			current_amount DOUBLE PRECISION NOT NULL DEFAULT 0,
+			priority      INT NOT NULL DEFAULT 3,
+			target_date   TIMESTAMPTZ,
+			status        TEXT NOT NULL DEFAULT 'active',
+			icon          TEXT,
+			created_at    TIMESTAMPTZ DEFAULT now(),
+			updated_at    TIMESTAMPTZ DEFAULT now(),
+			completed_at  TIMESTAMPTZ
+		)`,
+		`CREATE TABLE IF NOT EXISTS goal_contributions (
+			id         TEXT PRIMARY KEY,
+			goal_id    TEXT NOT NULL REFERENCES goals(id),
+			amount     DOUBLE PRECISION NOT NULL,
+			source     TEXT NOT NULL DEFAULT 'manual',
+			payout_id  TEXT,
+			note       TEXT,
+			created_at TIMESTAMPTZ DEFAULT now()
+		)`,
+
+		// ── Expenses & Payments ──
+		`CREATE TABLE IF NOT EXISTS expenses (
+			id         TEXT PRIMARY KEY,
+			name       TEXT NOT NULL,
+			category   TEXT NOT NULL,
+			amount     DOUBLE PRECISION NOT NULL,
+			frequency  TEXT NOT NULL DEFAULT 'monthly',
+			due_day    INT DEFAULT 1,
+			auto_pay   BOOLEAN DEFAULT false,
+			status     TEXT NOT NULL DEFAULT 'active',
+			next_due   TIMESTAMPTZ,
+			created_at TIMESTAMPTZ DEFAULT now(),
+			updated_at TIMESTAMPTZ DEFAULT now()
+		)`,
+		`CREATE TABLE IF NOT EXISTS payments (
+			id         TEXT PRIMARY KEY,
+			expense_id TEXT NOT NULL,
+			amount     DOUBLE PRECISION NOT NULL,
+			paid_at    TIMESTAMPTZ DEFAULT now(),
+			method     TEXT,
+			note       TEXT
+		)`,
+
+		// ── Holdings ──
+		`CREATE TABLE IF NOT EXISTS holdings (
+			id          TEXT PRIMARY KEY,
+			symbol      TEXT NOT NULL,
+			quantity    DOUBLE PRECISION NOT NULL DEFAULT 0,
+			avg_cost    DOUBLE PRECISION NOT NULL DEFAULT 0,
+			acquired_at TEXT,
+			notes       TEXT,
+			created_at  TIMESTAMPTZ DEFAULT now(),
+			updated_at  TIMESTAMPTZ DEFAULT now()
+		)`,
+
+		// ── Wheel Strategy ──
+		`CREATE TABLE IF NOT EXISTS wheel_cycles (
+			id                       TEXT PRIMARY KEY,
+			underlying               TEXT NOT NULL,
+			status                   TEXT NOT NULL DEFAULT 'selling_puts',
+			mode                     TEXT NOT NULL DEFAULT 'manual',
+			marine_id                TEXT,
+			broker                   TEXT,
+			started_at               TIMESTAMPTZ DEFAULT now(),
+			closed_at                TIMESTAMPTZ,
+			total_premium_collected  DOUBLE PRECISION NOT NULL DEFAULT 0,
+			cost_basis               DOUBLE PRECISION DEFAULT 0,
+			shares_held              INT NOT NULL DEFAULT 0,
+			metadata                 JSONB DEFAULT '{}'
+		)`,
+		`CREATE TABLE IF NOT EXISTS wheel_legs (
+			id          TEXT PRIMARY KEY,
+			cycle_id    TEXT NOT NULL REFERENCES wheel_cycles(id),
+			leg_type    TEXT NOT NULL,
+			symbol      TEXT NOT NULL,
+			strike      DOUBLE PRECISION,
+			expiration  TEXT,
+			option_type TEXT,
+			quantity    INT DEFAULT 0,
+			premium     DOUBLE PRECISION DEFAULT 0,
+			fill_price  DOUBLE PRECISION DEFAULT 0,
+			opened_at   TIMESTAMPTZ DEFAULT now(),
+			closed_at   TIMESTAMPTZ,
+			status      TEXT NOT NULL DEFAULT 'open',
+			notes       TEXT
+		)`,
+
+		// ── Market Bars ──
+		`CREATE TABLE IF NOT EXISTS market_bars (
+			time        TIMESTAMPTZ NOT NULL,
+			symbol      TEXT NOT NULL,
+			timeframe   TEXT NOT NULL,
+			source      TEXT NOT NULL DEFAULT 'engine',
+			open        DOUBLE PRECISION NOT NULL,
+			high        DOUBLE PRECISION NOT NULL,
+			low         DOUBLE PRECISION NOT NULL,
+			close       DOUBLE PRECISION NOT NULL,
+			volume      BIGINT DEFAULT 0,
+			vwap        DOUBLE PRECISION DEFAULT 0,
+			trade_count INT DEFAULT 0,
+			UNIQUE (symbol, timeframe, time, source)
 		)`,
 	}
 	for _, stmt := range stmts {
@@ -445,8 +698,14 @@ func (s *PGStore) ActivateKillSwitch(scope string) {
 
 // ─── Trading Accounts ───────────────────────────────────────
 
+const accountCols = `id, name, broker, type, account_number, initial_balance, current_balance, total_pnl, total_payouts, payout_count, profit_split, status, instruments,
+	max_loss_limit, profit_target, daily_pnl, trailing_dd, mll_headroom, mll_usage_pct, combine_progress_pct, withdrawal_available, account_phase,
+	combine_number, combine_start_date, combine_pass_date, funded_date, blown_date,
+	best_day_pnl, consistency_pct, avg_daily_pnl, overall_win_rate, winning_days, total_trading_days,
+	created_at, updated_at`
+
 func (s *PGStore) ListAccounts() []domain.TradingAccount {
-	rows, err := s.db.Query(`SELECT id, name, broker, type, account_number, initial_balance, current_balance, total_pnl, total_payouts, payout_count, profit_split, status, instruments, created_at, updated_at FROM trading_accounts ORDER BY created_at`)
+	rows, err := s.db.Query(`SELECT ` + accountCols + ` FROM trading_accounts ORDER BY created_at`)
 	if err != nil {
 		s.logger.Error("list accounts", "error", err)
 		return nil
@@ -459,13 +718,22 @@ func (s *PGStore) scanAccounts(rows *sql.Rows) []domain.TradingAccount {
 	var out []domain.TradingAccount
 	for rows.Next() {
 		var a domain.TradingAccount
-		var acctNum sql.NullString
+		var acctNum, phase, combineStart, combinePass, funded, blown sql.NullString
 		var instruments []byte
-		if err := rows.Scan(&a.ID, &a.Name, &a.Broker, &a.Type, &acctNum, &a.InitialBalance, &a.CurrentBalance, &a.TotalPnL, &a.TotalPayouts, &a.PayoutCount, &a.ProfitSplit, &a.Status, &instruments, &a.CreatedAt, &a.UpdatedAt); err != nil {
+		if err := rows.Scan(&a.ID, &a.Name, &a.Broker, &a.Type, &acctNum, &a.InitialBalance, &a.CurrentBalance, &a.TotalPnL, &a.TotalPayouts, &a.PayoutCount, &a.ProfitSplit, &a.Status, &instruments,
+			&a.MaxLossLimit, &a.ProfitTarget, &a.DailyPnL, &a.TrailingDD, &a.MLLHeadroom, &a.MLLUsagePct, &a.CombineProgressPct, &a.WithdrawalAvail, &phase,
+			&a.CombineNumber, &combineStart, &combinePass, &funded, &blown,
+			&a.BestDayPnL, &a.ConsistencyPct, &a.AvgDailyPnL, &a.OverallWinRate, &a.WinningDays, &a.TotalTradingDays,
+			&a.CreatedAt, &a.UpdatedAt); err != nil {
 			s.logger.Error("scan account", "error", err)
 			continue
 		}
 		a.AccountNumber = acctNum.String
+		a.AccountPhase = phase.String
+		a.CombineStartDate = combineStart.String
+		a.CombinePassDate = combinePass.String
+		a.FundedDate = funded.String
+		a.BlownDate = blown.String
 		out = append(out, a)
 	}
 	return out
@@ -473,10 +741,14 @@ func (s *PGStore) scanAccounts(rows *sql.Rows) []domain.TradingAccount {
 
 func (s *PGStore) GetAccount(id string) (*domain.TradingAccount, error) {
 	var a domain.TradingAccount
-	var acctNum sql.NullString
+	var acctNum, phase, combineStart, combinePass, funded, blown sql.NullString
 	var instruments []byte
-	err := s.db.QueryRow(`SELECT id, name, broker, type, account_number, initial_balance, current_balance, total_pnl, total_payouts, payout_count, profit_split, status, instruments, created_at, updated_at FROM trading_accounts WHERE id=$1`, id).
-		Scan(&a.ID, &a.Name, &a.Broker, &a.Type, &acctNum, &a.InitialBalance, &a.CurrentBalance, &a.TotalPnL, &a.TotalPayouts, &a.PayoutCount, &a.ProfitSplit, &a.Status, &instruments, &a.CreatedAt, &a.UpdatedAt)
+	err := s.db.QueryRow(`SELECT `+accountCols+` FROM trading_accounts WHERE id=$1`, id).
+		Scan(&a.ID, &a.Name, &a.Broker, &a.Type, &acctNum, &a.InitialBalance, &a.CurrentBalance, &a.TotalPnL, &a.TotalPayouts, &a.PayoutCount, &a.ProfitSplit, &a.Status, &instruments,
+			&a.MaxLossLimit, &a.ProfitTarget, &a.DailyPnL, &a.TrailingDD, &a.MLLHeadroom, &a.MLLUsagePct, &a.CombineProgressPct, &a.WithdrawalAvail, &phase,
+			&a.CombineNumber, &combineStart, &combinePass, &funded, &blown,
+			&a.BestDayPnL, &a.ConsistencyPct, &a.AvgDailyPnL, &a.OverallWinRate, &a.WinningDays, &a.TotalTradingDays,
+			&a.CreatedAt, &a.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("account %q not found", id)
 	}
@@ -484,6 +756,11 @@ func (s *PGStore) GetAccount(id string) (*domain.TradingAccount, error) {
 		return nil, err
 	}
 	a.AccountNumber = acctNum.String
+	a.AccountPhase = phase.String
+	a.CombineStartDate = combineStart.String
+	a.CombinePassDate = combinePass.String
+	a.FundedDate = funded.String
+	a.BlownDate = blown.String
 	return &a, nil
 }
 
@@ -500,15 +777,32 @@ func (s *PGStore) CreateAccount(a *domain.TradingAccount) error {
 	if a.ProfitSplit == 0 && a.Type == domain.AccountPersonal {
 		a.ProfitSplit = 1.0
 	}
-	_, err := s.db.Exec(`INSERT INTO trading_accounts (id, name, broker, type, account_number, initial_balance, current_balance, total_pnl, total_payouts, payout_count, profit_split, status, instruments, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
-		a.ID, a.Name, a.Broker, a.Type, a.AccountNumber, a.InitialBalance, a.CurrentBalance, a.TotalPnL, a.TotalPayouts, a.PayoutCount, a.ProfitSplit, a.Status, "{}", a.CreatedAt, a.UpdatedAt)
+	_, err := s.db.Exec(`INSERT INTO trading_accounts (id, name, broker, type, account_number, initial_balance, current_balance, total_pnl, total_payouts, payout_count, profit_split, status, instruments,
+		max_loss_limit, profit_target, daily_pnl, trailing_dd, mll_headroom, mll_usage_pct, combine_progress_pct, withdrawal_available, account_phase,
+		combine_number, combine_start_date, combine_pass_date, funded_date, blown_date,
+		best_day_pnl, consistency_pct, avg_daily_pnl, overall_win_rate, winning_days, total_trading_days,
+		created_at, updated_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35)`,
+		a.ID, a.Name, a.Broker, a.Type, a.AccountNumber, a.InitialBalance, a.CurrentBalance, a.TotalPnL, a.TotalPayouts, a.PayoutCount, a.ProfitSplit, a.Status, "[]",
+		a.MaxLossLimit, a.ProfitTarget, a.DailyPnL, a.TrailingDD, a.MLLHeadroom, a.MLLUsagePct, a.CombineProgressPct, a.WithdrawalAvail, a.AccountPhase,
+		a.CombineNumber, a.CombineStartDate, a.CombinePassDate, a.FundedDate, a.BlownDate,
+		a.BestDayPnL, a.ConsistencyPct, a.AvgDailyPnL, a.OverallWinRate, a.WinningDays, a.TotalTradingDays,
+		a.CreatedAt, a.UpdatedAt)
 	return err
 }
 
 func (s *PGStore) UpdateAccount(a *domain.TradingAccount) error {
 	a.UpdatedAt = time.Now()
-	_, err := s.db.Exec(`UPDATE trading_accounts SET name=$2, broker=$3, type=$4, current_balance=$5, total_pnl=$6, total_payouts=$7, payout_count=$8, profit_split=$9, status=$10, updated_at=$11 WHERE id=$1`,
-		a.ID, a.Name, a.Broker, a.Type, a.CurrentBalance, a.TotalPnL, a.TotalPayouts, a.PayoutCount, a.ProfitSplit, a.Status, a.UpdatedAt)
+	_, err := s.db.Exec(`UPDATE trading_accounts SET name=$2, broker=$3, type=$4, current_balance=$5, total_pnl=$6, total_payouts=$7, payout_count=$8, profit_split=$9, status=$10,
+		max_loss_limit=$11, profit_target=$12, daily_pnl=$13, trailing_dd=$14, mll_headroom=$15, mll_usage_pct=$16, combine_progress_pct=$17, withdrawal_available=$18, account_phase=$19,
+		combine_number=$20, combine_start_date=$21, combine_pass_date=$22, funded_date=$23, blown_date=$24,
+		best_day_pnl=$25, consistency_pct=$26, avg_daily_pnl=$27, overall_win_rate=$28, winning_days=$29, total_trading_days=$30,
+		updated_at=$31 WHERE id=$1`,
+		a.ID, a.Name, a.Broker, a.Type, a.CurrentBalance, a.TotalPnL, a.TotalPayouts, a.PayoutCount, a.ProfitSplit, a.Status,
+		a.MaxLossLimit, a.ProfitTarget, a.DailyPnL, a.TrailingDD, a.MLLHeadroom, a.MLLUsagePct, a.CombineProgressPct, a.WithdrawalAvail, a.AccountPhase,
+		a.CombineNumber, a.CombineStartDate, a.CombinePassDate, a.FundedDate, a.BlownDate,
+		a.BestDayPnL, a.ConsistencyPct, a.AvgDailyPnL, a.OverallWinRate, a.WinningDays, a.TotalTradingDays,
+		a.UpdatedAt)
 	return err
 }
 

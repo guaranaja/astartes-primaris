@@ -38,9 +38,14 @@ func Load() *Config {
 	}
 }
 
-// UseDB returns true if a database URL is configured.
+// UseDB returns true if a real database URL is configured.
 func (c *Config) UseDB() bool {
-	return c.DBUrl != ""
+	switch c.DBUrl {
+	case "", "PLACEHOLDER", "none":
+		return false
+	default:
+		return true
+	}
 }
 
 func envStr(key, fallback string) string {
