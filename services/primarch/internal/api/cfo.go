@@ -26,19 +26,40 @@ func (s *Server) handleFinanceOverview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Inject trading data from Council's existing store
+	// Inject trading data from Council's existing store.
+	// Only XFT/live accounts have real monetary value.
+	// Combine accounts track progress but aren't real assets.
+	// Practice accounts are purely simulated.
 	accounts := s.store.ListAccounts()
 	for _, a := range accounts {
+		phase := a.AccountPhase // "practice", "combine", "fxt", "live", "blown"
+
+		// Determine real asset value based on account phase
+		var realValue float64
+		switch phase {
+		case "live":
+			realValue = a.CurrentBalance
+		case "fxt":
+			// Only profit after split is yours; the base capital is the firm's
+			profit := a.CurrentBalance - float64(a.InitialBalance)
+			if profit > 0 {
+				realValue = profit * a.ProfitSplit
+			}
+		default:
+			// practice, combine, blown — no real asset value
+			realValue = 0
+		}
+
 		overview.Accounts = append(overview.Accounts, cfo.UnifiedAccount{
 			ID:       "tr-" + a.ID,
 			Name:     a.Name,
 			Source:   cfo.SourceTrading,
-			Type:     string(a.Type),
+			Type:     phase, // use phase instead of generic "prop"
 			Balance:  a.CurrentBalance,
 			Currency: "USD",
 		})
-		overview.TradingValue += a.CurrentBalance
-		overview.TotalNetWorth += a.CurrentBalance
+		overview.TradingValue += realValue
+		overview.TotalNetWorth += realValue
 	}
 
 	// Trading P&L from metrics
@@ -61,13 +82,17 @@ func (s *Server) handleFinanceAccounts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Add trading accounts
+	// Add trading accounts with phase as type
 	for _, a := range s.store.ListAccounts() {
+		acctType := a.AccountPhase
+		if acctType == "" {
+			acctType = string(a.Type)
+		}
 		overview.Accounts = append(overview.Accounts, cfo.UnifiedAccount{
 			ID:       "tr-" + a.ID,
 			Name:     a.Name,
 			Source:   cfo.SourceTrading,
-			Type:     string(a.Type),
+			Type:     acctType,
 			Balance:  a.CurrentBalance,
 			Currency: "USD",
 		})
