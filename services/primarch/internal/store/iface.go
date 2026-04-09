@@ -82,11 +82,23 @@ type DataStore interface {
 	ListPayments(expenseID string) []domain.Payment
 	GetBillingSummary() domain.BillingSummary
 
+	// ─── Payout Allocations ────────────────────────────
+	RecordAllocation(a domain.PayoutAllocation) error
+	ListAllocationsForMonth(year int, month int) []domain.PayoutAllocation
+
 	// ─── Holdings ──────────────────────────────────────
 	ListHoldings() []domain.Holding
 	CreateHolding(h *domain.Holding) error
 	UpdateHolding(h *domain.Holding) error
 	DeleteHolding(id string) error
+
+	// ─── Wheel Cycles ──────────────────────────────────
+	ListWheelCycles() []domain.WheelCycle
+	CreateWheelCycle(c *domain.WheelCycle) error
+	UpdateWheelCycle(c *domain.WheelCycle) error
+	ListWheelLegs(cycleID string) []domain.WheelLeg
+	CreateWheelLeg(l *domain.WheelLeg) error
+	UpdateWheelLeg(l *domain.WheelLeg) error
 
 	// ─── Commands (Engine Protocol) ────────────────────────
 	CreateCommand(c *domain.Command) error

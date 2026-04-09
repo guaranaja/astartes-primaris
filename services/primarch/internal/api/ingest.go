@@ -132,6 +132,29 @@ func (s *Server) handleEngineAccountSnapshot(w http.ResponseWriter, r *http.Requ
 			ProfitSplit:    profitSplit,
 			Status:         status,
 			Instruments:    snap.Instruments,
+			// Risk & drawdown
+			MaxLossLimit:       snap.MaxLossLimit,
+			ProfitTarget:       snap.ProfitTarget,
+			DailyPnL:           snap.DailyPnL,
+			TrailingDD:         snap.TrailingDD,
+			MLLHeadroom:        snap.MLLHeadroom,
+			MLLUsagePct:        snap.MLLUsagePct,
+			CombineProgressPct: snap.CombineProgressPct,
+			WithdrawalAvail:    snap.WithdrawalAvail,
+			AccountPhase:       snap.AccountPhase,
+			// Combine lifecycle
+			CombineNumber:    snap.CombineNumber,
+			CombineStartDate: snap.CombineStartDate,
+			CombinePassDate:  snap.CombinePassDate,
+			FundedDate:       snap.FundedDate,
+			BlownDate:        snap.BlownDate,
+			// Performance metrics
+			BestDayPnL:       snap.BestDayPnL,
+			ConsistencyPct:   snap.ConsistencyPct,
+			AvgDailyPnL:      snap.AvgDailyPnL,
+			OverallWinRate:   snap.OverallWinRate,
+			WinningDays:      snap.WinningDays,
+			TotalTradingDays: snap.TotalTradingDays,
 		}
 		if err := s.store.CreateAccount(acct); err != nil {
 			// Already exists — update

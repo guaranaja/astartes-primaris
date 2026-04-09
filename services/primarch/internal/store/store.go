@@ -29,11 +29,14 @@ type Store struct {
 	expenses      map[string]*domain.Expense
 	payments      []domain.Payment
 	holdings      map[string]*domain.Holding
+	wheelCycles   map[string]*domain.WheelCycle
+	wheelLegs     map[string]*domain.WheelLeg
 	commands      map[string]*domain.Command
 	trades        map[string]*domain.Trade
 	positions     map[string]*domain.Position // key: marine_id:broker:symbol
 	snapshots     []domain.AccountSnapshot
-	bars          map[string]*domain.MarketBar // key: symbol:timeframe:time
+	bars                map[string]*domain.MarketBar // key: symbol:timeframe:time
+	payoutAllocations   []domain.PayoutAllocation
 }
 
 // New creates a new empty store.
@@ -49,6 +52,8 @@ func New() *Store {
 		goals:       make(map[string]*domain.Goal),
 		expenses:    make(map[string]*domain.Expense),
 		holdings:    make(map[string]*domain.Holding),
+		wheelCycles: make(map[string]*domain.WheelCycle),
+		wheelLegs:   make(map[string]*domain.WheelLeg),
 		commands:    make(map[string]*domain.Command),
 		trades:      make(map[string]*domain.Trade),
 		positions:   make(map[string]*domain.Position),
@@ -364,6 +369,30 @@ func (s *Store) ActivateKillSwitch(scope string) {
 	}
 }
 
+// ─── Payout Allocations ────────────────────────────────────
+
+func (s *Store) RecordAllocation(a domain.PayoutAllocation) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if a.CreatedAt.IsZero() {
+		a.CreatedAt = time.Now()
+	}
+	s.payoutAllocations = append(s.payoutAllocations, a)
+	return nil
+}
+
+func (s *Store) ListAllocationsForMonth(year int, month int) []domain.PayoutAllocation {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var out []domain.PayoutAllocation
+	for _, a := range s.payoutAllocations {
+		if a.CreatedAt.Year() == year && int(a.CreatedAt.Month()) == month {
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
 // ─── Holdings ───────────────────────────────────────────────
 
 func (s *Store) ListHoldings() []domain.Holding {
@@ -409,6 +438,80 @@ func (s *Store) DeleteHolding(id string) error {
 		return fmt.Errorf("holding %q not found", id)
 	}
 	delete(s.holdings, id)
+	return nil
+}
+
+// ─── Wheel Cycles ──────────────────────────────────────────
+
+func (s *Store) ListWheelCycles() []domain.WheelCycle {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]domain.WheelCycle, 0, len(s.wheelCycles))
+	for _, c := range s.wheelCycles {
+		out = append(out, *c)
+	}
+	return out
+}
+
+func (s *Store) CreateWheelCycle(c *domain.WheelCycle) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, exists := s.wheelCycles[c.ID]; exists {
+		return fmt.Errorf("wheel cycle %q already exists", c.ID)
+	}
+	if c.StartedAt.IsZero() {
+		c.StartedAt = time.Now()
+	}
+	cp := *c
+	s.wheelCycles[c.ID] = &cp
+	return nil
+}
+
+func (s *Store) UpdateWheelCycle(c *domain.WheelCycle) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, exists := s.wheelCycles[c.ID]; !exists {
+		return fmt.Errorf("wheel cycle %q not found", c.ID)
+	}
+	cp := *c
+	s.wheelCycles[c.ID] = &cp
+	return nil
+}
+
+func (s *Store) ListWheelLegs(cycleID string) []domain.WheelLeg {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var out []domain.WheelLeg
+	for _, l := range s.wheelLegs {
+		if l.CycleID == cycleID {
+			out = append(out, *l)
+		}
+	}
+	return out
+}
+
+func (s *Store) CreateWheelLeg(l *domain.WheelLeg) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, exists := s.wheelLegs[l.ID]; exists {
+		return fmt.Errorf("wheel leg %q already exists", l.ID)
+	}
+	if l.OpenedAt.IsZero() {
+		l.OpenedAt = time.Now()
+	}
+	cp := *l
+	s.wheelLegs[l.ID] = &cp
+	return nil
+}
+
+func (s *Store) UpdateWheelLeg(l *domain.WheelLeg) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, exists := s.wheelLegs[l.ID]; !exists {
+		return fmt.Errorf("wheel leg %q not found", l.ID)
+	}
+	cp := *l
+	s.wheelLegs[l.ID] = &cp
 	return nil
 }
 

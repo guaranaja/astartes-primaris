@@ -67,6 +67,7 @@ const App = {
     this.loadData();
     this.loadCouncil();
     this.loadHoldings();
+    this.loadWheelCycles();
   },
 
   // ─── API Client ────────────────────────────────────────
@@ -1481,12 +1482,16 @@ const App = {
 
     el.innerHTML = accounts.map(a => {
       const profit = a.current_balance - a.initial_balance;
-      const drawdownPct = a.initial_balance > 0
-        ? ((a.initial_balance - Math.min(a.current_balance, a.initial_balance)) / a.initial_balance * 100)
-        : 0;
       const profitPct = a.initial_balance > 0 ? (profit / a.initial_balance * 100) : 0;
       const isActive = a.status === 'active';
-      const statusColor = isActive ? 'var(--green)' : a.status === 'blown' ? 'var(--red)' : 'var(--text-3)';
+      const phase = a.account_phase || (a.status === 'blown' ? 'blown' : 'combine');
+      const phaseColors = { combine: 'var(--accent)', fxt: 'var(--green)', live: 'var(--gold)', blown: 'var(--red)' };
+      const phaseLabels = { combine: 'COMBINE', fxt: 'FUNDED (FXT)', live: 'LIVE', blown: 'BLOWN' };
+      const statusColor = phaseColors[phase] || 'var(--text-3)';
+      const mllPct = a.mll_usage_pct || 0;
+      const mllBarColor = mllPct > 80 ? 'var(--red)' : mllPct > 50 ? 'var(--gold)' : 'var(--green)';
+      const combProg = a.combine_progress_pct || 0;
+      const consistencyOk = (a.consistency_pct || 0) < 50;
 
       return `
         <div class="prop-account-card ${a.status}">
@@ -1494,8 +1499,9 @@ const App = {
             <div>
               <span class="prop-acct-name">${esc(a.name)}</span>
               <span class="prop-acct-broker">${esc(a.broker)}</span>
+              ${a.combine_number ? `<span style="color:var(--text-3);font-size:11px">#${a.combine_number}</span>` : ''}
             </div>
-            <span class="prop-acct-status" style="color:${statusColor}">${a.status.toUpperCase()}</span>
+            <span class="prop-acct-status" style="color:${statusColor}">${phaseLabels[phase] || a.status.toUpperCase()}</span>
           </div>
 
           <div class="prop-acct-balances">
@@ -1504,11 +1510,11 @@ const App = {
               <span class="prop-bal-value">$${fmt(a.current_balance)}</span>
             </div>
             <div class="prop-acct-bal">
-              <span class="prop-bal-label">Initial</span>
-              <span class="prop-bal-value" style="color:var(--text-2)">$${fmt(a.initial_balance)}</span>
+              <span class="prop-bal-label">Daily P&L</span>
+              <span class="prop-bal-value ${(a.daily_pnl||0) >= 0 ? 'positive' : 'negative'}">${(a.daily_pnl||0) >= 0 ? '+' : ''}$${fmt(a.daily_pnl||0)}</span>
             </div>
             <div class="prop-acct-bal">
-              <span class="prop-bal-label">P&L</span>
+              <span class="prop-bal-label">Total P&L</span>
               <span class="prop-bal-value ${profit >= 0 ? 'positive' : 'negative'}">${profit >= 0 ? '+' : ''}$${fmt(profit)}</span>
             </div>
             <div class="prop-acct-bal">
@@ -1517,23 +1523,52 @@ const App = {
             </div>
           </div>
 
+          ${phase === 'combine' && a.profit_target > 0 ? `
+          <div class="prop-progress-section">
+            <div class="prop-detail-row">
+              <span>Combine Progress</span>
+              <span class="positive">${combProg.toFixed(1)}% of $${fmt(a.profit_target)}</span>
+            </div>
+            <div class="progress-bar"><div class="progress-fill" style="width:${Math.min(combProg,100)}%;background:var(--green)"></div></div>
+          </div>` : ''}
+
+          ${a.max_loss_limit > 0 ? `
+          <div class="prop-progress-section">
+            <div class="prop-detail-row">
+              <span>MLL Usage</span>
+              <span style="color:${mllBarColor}">${mllPct.toFixed(1)}% ($${fmt(a.mll_headroom||0)} headroom)</span>
+            </div>
+            <div class="progress-bar"><div class="progress-fill" style="width:${Math.min(mllPct,100)}%;background:${mllBarColor}"></div></div>
+          </div>` : ''}
+
           <div class="prop-acct-details">
+            ${a.combine_start_date ? `<div class="prop-detail-row"><span>Combine Started</span><span>${a.combine_start_date}</span></div>` : ''}
+            ${a.combine_pass_date ? `<div class="prop-detail-row"><span>Combine Passed</span><span class="positive">${a.combine_pass_date}</span></div>` : ''}
+            ${a.funded_date ? `<div class="prop-detail-row"><span>Funded Date</span><span class="positive">${a.funded_date}</span></div>` : ''}
+            ${a.blown_date ? `<div class="prop-detail-row"><span>Blown Date</span><span class="negative">${a.blown_date}</span></div>` : ''}
             <div class="prop-detail-row">
               <span>Profit Split</span>
               <span style="color:var(--gold)">${Math.round(a.profit_split * 100)}% / ${Math.round((1 - a.profit_split) * 100)}%</span>
             </div>
-            <div class="prop-detail-row">
-              <span>Your Take (of P&L)</span>
-              <span class="${profit >= 0 ? 'positive' : 'negative'}">$${fmt(Math.max(0, profit) * a.profit_split)}</span>
-            </div>
-            <div class="prop-detail-row">
-              <span>Firm Take</span>
-              <span style="color:var(--text-2)">$${fmt(Math.max(0, profit) * (1 - a.profit_split))}</span>
-            </div>
+            ${a.withdrawal_available > 0 ? `<div class="prop-detail-row"><span>Available for Withdrawal</span><span class="positive">$${fmt(a.withdrawal_available)}</span></div>` : ''}
             <div class="prop-detail-row">
               <span>Payouts</span>
               <span>${a.payout_count} ($${fmt(a.total_payouts)} net)</span>
             </div>
+            <div class="prop-detail-row">
+              <span>Trading Days</span>
+              <span>${a.winning_days || 0}W / ${(a.total_trading_days||0) - (a.winning_days||0)}L (${a.total_trading_days || 0} total)</span>
+            </div>
+            ${a.best_day_pnl ? `<div class="prop-detail-row">
+              <span>Best Day</span>
+              <span class="positive">$${fmt(a.best_day_pnl)}</span>
+            </div>` : ''}
+            ${a.consistency_pct ? `<div class="prop-detail-row">
+              <span>Consistency Rule</span>
+              <span style="color:${consistencyOk ? 'var(--green)' : 'var(--red)'}">${a.consistency_pct.toFixed(1)}% ${consistencyOk ? '(OK)' : '(WARNING > 50%)'}</span>
+            </div>` : ''}
+            ${a.avg_daily_pnl ? `<div class="prop-detail-row"><span>Avg Daily P&L</span><span class="${a.avg_daily_pnl >= 0 ? 'positive' : 'negative'}">$${Number(a.avg_daily_pnl).toFixed(0)}</span></div>` : ''}
+            ${a.overall_win_rate ? `<div class="prop-detail-row"><span>Win Rate</span><span>${a.overall_win_rate.toFixed(0)}%</span></div>` : ''}
             <div class="prop-detail-row">
               <span>Instruments</span>
               <span style="font-family:var(--font-mono);font-size:11px">${(a.instruments || []).join(', ') || '—'}</span>
@@ -2074,6 +2109,267 @@ App.runWheelAnalysis = async function() {
     `).join('');
   } catch (err) {
     el.innerHTML = `<div class="empty-state">Error: ${esc(err.message)}</div>`;
+  }
+};
+
+// ─── Wheel Cycle Manager (Phalanx) ──────────────────────
+
+App.loadWheelCycles = async function() {
+  try {
+    App.state.wheelCycles = await App.api('/wheel-cycles') || [];
+    App.renderWheelCycles();
+  } catch (e) {
+    App.state.wheelCycles = [];
+  }
+};
+
+App.renderWheelCycles = function() {
+  const el = document.getElementById('wheelCycles');
+  if (!el) return;
+  const cycles = App.state.wheelCycles || [];
+  if (cycles.length === 0) {
+    el.innerHTML = '<div class="empty-state">No active wheels — start a new wheel cycle</div>';
+    return;
+  }
+
+  const statusIcons = {
+    'selling_puts': 'P',
+    'assigned': 'A',
+    'selling_calls': 'C',
+    'called_away': 'X',
+    'closed': '-'
+  };
+  const statusLabels = {
+    'selling_puts': 'Selling Puts',
+    'assigned': 'Assigned (Holding Stock)',
+    'selling_calls': 'Selling Calls',
+    'called_away': 'Called Away',
+    'closed': 'Closed'
+  };
+
+  el.innerHTML = cycles.map(c => {
+    const premium = Number(c.total_premium_collected || 0);
+    const statusClass = c.status === 'closed' || c.status === 'called_away' ? 'neutral' : 'active';
+    return `
+    <div class="wheel-cycle-card ${statusClass}">
+      <div class="wheel-cycle-header">
+        <div>
+          <strong>${esc(c.underlying)}</strong>
+          <span class="badge badge-${c.status}">${statusLabels[c.status] || c.status}</span>
+          <span class="badge badge-mode">${c.mode}</span>
+        </div>
+        <div>
+          <span class="premium ${premium >= 0 ? 'positive' : 'negative'}">$${premium.toFixed(2)} premium</span>
+          ${c.shares_held > 0 ? `<span class="shares">${c.shares_held} shares @ $${Number(c.cost_basis || 0).toFixed(2)}</span>` : ''}
+        </div>
+      </div>
+      <div class="wheel-cycle-actions">
+        <button class="btn btn-sm" onclick="App.addWheelLeg('${c.id}', '${esc(c.underlying)}')">+ Add Leg</button>
+        <button class="btn btn-sm" onclick="App.viewWheelLegs('${c.id}', '${esc(c.underlying)}')">View Legs</button>
+        <button class="btn btn-sm" onclick="App.updateWheelStatus('${c.id}')">Update Status</button>
+      </div>
+    </div>`;
+  }).join('');
+};
+
+App.addWheelCycle = function() {
+  App.openModal(`
+    <h3 style="margin-bottom: 16px">Start New Wheel</h3>
+    <form onsubmit="App.submitWheelCycle(event)" style="display:flex;flex-direction:column;gap:12px">
+      <div class="form-row">
+        <label>Underlying Symbol</label>
+        <input type="text" id="wcSymbol" class="input" placeholder="RIVN" required style="text-transform:uppercase">
+      </div>
+      <div class="form-row">
+        <label>Broker</label>
+        <input type="text" id="wcBroker" class="input" placeholder="Fidelity, Schwab, etc.">
+      </div>
+      <div class="form-row">
+        <label>Starting Phase</label>
+        <select id="wcStatus" class="input">
+          <option value="selling_puts">Selling Puts (CSP)</option>
+          <option value="assigned">Assigned (Holding Stock)</option>
+          <option value="selling_calls">Selling Calls (CC)</option>
+        </select>
+      </div>
+      <button type="submit" class="btn btn-primary btn-lg">Start Wheel</button>
+    </form>
+  `);
+};
+
+App.submitWheelCycle = async function(e) {
+  e.preventDefault();
+  try {
+    await App.api('/wheel-cycles', { method: 'POST', body: {
+      underlying: document.getElementById('wcSymbol').value.toUpperCase(),
+      broker: document.getElementById('wcBroker').value,
+      status: document.getElementById('wcStatus').value,
+      mode: 'manual',
+    }});
+    App.closeModal();
+    App.flash('Wheel cycle started');
+    App.loadWheelCycles();
+  } catch (err) {
+    App.flash('Error: ' + err.message, 'error');
+  }
+};
+
+App.addWheelLeg = function(cycleId, underlying) {
+  App.openModal(`
+    <h3 style="margin-bottom: 16px">Add Leg — ${underlying}</h3>
+    <form onsubmit="App.submitWheelLeg(event, '${cycleId}')" style="display:flex;flex-direction:column;gap:12px">
+      <div class="form-row">
+        <label>Leg Type</label>
+        <select id="wlType" class="input">
+          <option value="csp">Cash-Secured Put (CSP)</option>
+          <option value="covered_call">Covered Call (CC)</option>
+          <option value="assignment">Assignment (Got Shares)</option>
+          <option value="called_away">Called Away (Lost Shares)</option>
+          <option value="roll">Roll</option>
+          <option value="close">Close Position</option>
+        </select>
+      </div>
+      <div class="form-row two-col">
+        <div>
+          <label>Strike</label>
+          <input type="number" id="wlStrike" class="input" step="0.5" placeholder="12.00">
+        </div>
+        <div>
+          <label>Expiration</label>
+          <input type="date" id="wlExpiration" class="input">
+        </div>
+      </div>
+      <div class="form-row two-col">
+        <div>
+          <label>Option Type</label>
+          <select id="wlOptType" class="input">
+            <option value="P">Put</option>
+            <option value="C">Call</option>
+          </select>
+        </div>
+        <div>
+          <label>Contracts</label>
+          <input type="number" id="wlQty" class="input" value="1" step="1">
+        </div>
+      </div>
+      <div class="form-row two-col">
+        <div>
+          <label>Premium (credit +, debit -)</label>
+          <input type="number" id="wlPremium" class="input" step="0.01" placeholder="0.45">
+        </div>
+        <div>
+          <label>Fill Price</label>
+          <input type="number" id="wlFill" class="input" step="0.01" placeholder="0.45">
+        </div>
+      </div>
+      <div class="form-row">
+        <label>Notes</label>
+        <input type="text" id="wlNotes" class="input" placeholder="Opened at 30 delta, 45 DTE">
+      </div>
+      <button type="submit" class="btn btn-primary btn-lg">Add Leg</button>
+    </form>
+  `);
+};
+
+App.submitWheelLeg = async function(e, cycleId) {
+  e.preventDefault();
+  try {
+    await App.api(`/wheel-cycles/${cycleId}/legs`, { method: 'POST', body: {
+      leg_type: document.getElementById('wlType').value,
+      symbol: document.getElementById('wlStrike').value ? `${cycleId}` : '',
+      strike: parseFloat(document.getElementById('wlStrike').value) || 0,
+      expiration: document.getElementById('wlExpiration').value,
+      option_type: document.getElementById('wlOptType').value,
+      quantity: parseInt(document.getElementById('wlQty').value) || 1,
+      premium: parseFloat(document.getElementById('wlPremium').value) || 0,
+      fill_price: parseFloat(document.getElementById('wlFill').value) || 0,
+      notes: document.getElementById('wlNotes').value,
+    }});
+    App.closeModal();
+    App.flash('Leg added');
+    App.loadWheelCycles();
+  } catch (err) {
+    App.flash('Error: ' + err.message, 'error');
+  }
+};
+
+App.viewWheelLegs = async function(cycleId, underlying) {
+  try {
+    const legs = await App.api(`/wheel-cycles/${cycleId}/legs`) || [];
+    if (legs.length === 0) {
+      App.openModal(`<h3>${underlying} — Legs</h3><div class="empty-state">No legs recorded yet</div>`);
+      return;
+    }
+    const html = legs.map(l => `
+      <tr>
+        <td>${esc(l.leg_type)}</td>
+        <td>${l.option_type || '-'}</td>
+        <td>${l.strike ? '$' + Number(l.strike).toFixed(2) : '-'}</td>
+        <td>${l.expiration || '-'}</td>
+        <td>${l.quantity || '-'}</td>
+        <td class="${(l.premium||0) >= 0 ? 'positive' : 'negative'}">$${Number(l.premium||0).toFixed(2)}</td>
+        <td>${esc(l.status)}</td>
+        <td>${esc(l.notes || '')}</td>
+      </tr>
+    `).join('');
+    App.openModal(`
+      <h3>${underlying} — Legs</h3>
+      <div class="table-wrap" style="margin-top:12px">
+        <table class="data-table">
+          <thead><tr><th>Type</th><th>P/C</th><th>Strike</th><th>Exp</th><th>Qty</th><th>Premium</th><th>Status</th><th>Notes</th></tr></thead>
+          <tbody>${html}</tbody>
+        </table>
+      </div>
+    `);
+  } catch (err) {
+    App.flash('Error: ' + err.message, 'error');
+  }
+};
+
+App.updateWheelStatus = function(cycleId) {
+  const c = (App.state.wheelCycles || []).find(x => x.id === cycleId);
+  if (!c) return;
+  App.openModal(`
+    <h3 style="margin-bottom: 16px">Update ${esc(c.underlying)} Wheel</h3>
+    <form onsubmit="App.submitWheelUpdate(event, '${cycleId}')" style="display:flex;flex-direction:column;gap:12px">
+      <div class="form-row">
+        <label>Status</label>
+        <select id="wuStatus" class="input">
+          <option value="selling_puts" ${c.status==='selling_puts'?'selected':''}>Selling Puts</option>
+          <option value="assigned" ${c.status==='assigned'?'selected':''}>Assigned (Holding Stock)</option>
+          <option value="selling_calls" ${c.status==='selling_calls'?'selected':''}>Selling Calls</option>
+          <option value="called_away" ${c.status==='called_away'?'selected':''}>Called Away</option>
+          <option value="closed" ${c.status==='closed'?'selected':''}>Closed</option>
+        </select>
+      </div>
+      <div class="form-row two-col">
+        <div>
+          <label>Cost Basis ($)</label>
+          <input type="number" id="wuCost" class="input" value="${c.cost_basis||''}" step="0.01">
+        </div>
+        <div>
+          <label>Shares Held</label>
+          <input type="number" id="wuShares" class="input" value="${c.shares_held||0}" step="100">
+        </div>
+      </div>
+      <button type="submit" class="btn btn-primary btn-lg">Update</button>
+    </form>
+  `);
+};
+
+App.submitWheelUpdate = async function(e, cycleId) {
+  e.preventDefault();
+  try {
+    await App.api(`/wheel-cycles/${cycleId}`, { method: 'PUT', body: {
+      status: document.getElementById('wuStatus').value,
+      cost_basis: parseFloat(document.getElementById('wuCost').value) || 0,
+      shares_held: parseInt(document.getElementById('wuShares').value) || 0,
+    }});
+    App.closeModal();
+    App.flash('Wheel updated');
+    App.loadWheelCycles();
+  } catch (err) {
+    App.flash('Error: ' + err.message, 'error');
   }
 };
 

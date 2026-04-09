@@ -2,7 +2,9 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/guaranaja/astartes-primaris/services/primarch/internal/domain"
 )
@@ -53,6 +55,10 @@ func (s *Server) registerCouncilRoutes() {
 	s.mux.HandleFunc("DELETE /api/v1/council/expenses/{id}", s.handleDeleteExpense)
 	s.mux.HandleFunc("POST /api/v1/council/expenses/{id}/pay", s.handlePayExpense)
 	s.mux.HandleFunc("GET /api/v1/council/billing", s.handleBillingSummary)
+
+	// Payout allocations
+	s.mux.HandleFunc("POST /api/v1/council/allocations/record", s.handleRecordAllocation)
+	s.mux.HandleFunc("GET /api/v1/council/allocations/history", s.handleListAllocations)
 }
 
 // ─── Roadmap ────────────────────────────────────────────────
@@ -455,4 +461,50 @@ func (s *Server) handleBillingSummary(w http.ResponseWriter, r *http.Request) {
 		s.logger.Warn("firefly billing unavailable, falling back to store", "error", err)
 	}
 	writeJSON(w, http.StatusOK, s.store.GetBillingSummary())
+}
+
+// ─── Payout Allocations ────────────────────────────────────
+
+// handleRecordAllocation logs where funds were sent ("I sent $X to family").
+func (s *Server) handleRecordAllocation(w http.ResponseWriter, r *http.Request) {
+	var a domain.PayoutAllocation
+	if err := json.NewDecoder(r.Body).Decode(&a); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid json: "+err.Error())
+		return
+	}
+	if a.Category == "" || a.Amount <= 0 {
+		writeError(w, http.StatusBadRequest, "category and amount > 0 required")
+		return
+	}
+	if a.ID == "" {
+		a.ID = fmt.Sprintf("alloc-%d", time.Now().UnixNano())
+	}
+	if err := s.store.RecordAllocation(a); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	s.logger.Info("allocation recorded", "category", a.Category, "amount", a.Amount, "note", a.Note)
+	writeJSON(w, http.StatusCreated, a)
+}
+
+// handleListAllocations returns allocations for the current month (or specified year/month).
+func (s *Server) handleListAllocations(w http.ResponseWriter, r *http.Request) {
+	now := time.Now()
+	year := now.Year()
+	month := int(now.Month())
+
+	allocations := s.store.ListAllocationsForMonth(year, month)
+
+	// Compute per-category totals
+	totals := make(map[string]float64)
+	for _, a := range allocations {
+		totals[a.Category] += a.Amount
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"year":        year,
+		"month":       month,
+		"allocations": allocations,
+		"totals":      totals,
+	})
 }

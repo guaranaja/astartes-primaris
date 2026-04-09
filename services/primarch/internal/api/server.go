@@ -104,8 +104,14 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("PUT /api/v1/holdings/{id}", s.handleUpdateHolding)
 	s.mux.HandleFunc("DELETE /api/v1/holdings/{id}", s.handleDeleteHolding)
 
-	// Wheel Analysis
+	// Wheel Analysis + Cycle Manager
 	s.mux.HandleFunc("GET /api/v1/wheel-analysis", s.handleWheelAnalysis)
+	s.mux.HandleFunc("GET /api/v1/wheel-cycles", s.handleListWheelCycles)
+	s.mux.HandleFunc("POST /api/v1/wheel-cycles", s.handleCreateWheelCycle)
+	s.mux.HandleFunc("PUT /api/v1/wheel-cycles/{id}", s.handleUpdateWheelCycle)
+	s.mux.HandleFunc("GET /api/v1/wheel-cycles/{id}/legs", s.handleListWheelLegs)
+	s.mux.HandleFunc("POST /api/v1/wheel-cycles/{id}/legs", s.handleCreateWheelLeg)
+	s.mux.HandleFunc("PUT /api/v1/wheel-legs/{id}", s.handleUpdateWheelLeg)
 
 	// Engine Protocol (service-to-service)
 	s.mux.HandleFunc("POST /api/v1/engine/register", s.handleEngineRegister)

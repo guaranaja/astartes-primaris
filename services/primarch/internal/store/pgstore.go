@@ -1067,6 +1067,46 @@ func calcPayoutsNeededFromList(remaining float64, payouts []domain.Payout, alloc
 	return -1
 }
 
+// ─── Payout Allocations ─────────────────────────────────
+
+func (s *PGStore) RecordAllocation(a domain.PayoutAllocation) error {
+	if a.CreatedAt.IsZero() {
+		a.CreatedAt = time.Now()
+	}
+	_, err := s.db.Exec(`INSERT INTO payout_allocations (id, payout_id, category, amount, note, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6)`,
+		a.ID, a.PayoutID, a.Category, a.Amount, a.Note, a.CreatedAt)
+	if err != nil {
+		return fmt.Errorf("record allocation: %w", err)
+	}
+	return nil
+}
+
+func (s *PGStore) ListAllocationsForMonth(year int, month int) []domain.PayoutAllocation {
+	start := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, time.UTC)
+	end := start.AddDate(0, 1, 0)
+	rows, err := s.db.Query(`SELECT id, payout_id, category, amount, note, created_at
+		FROM payout_allocations WHERE created_at >= $1 AND created_at < $2
+		ORDER BY created_at DESC`, start, end)
+	if err != nil {
+		s.logger.Error("list allocations", "error", err)
+		return nil
+	}
+	defer rows.Close()
+	var out []domain.PayoutAllocation
+	for rows.Next() {
+		var a domain.PayoutAllocation
+		var payoutID sql.NullString
+		if err := rows.Scan(&a.ID, &payoutID, &a.Category, &a.Amount, &a.Note, &a.CreatedAt); err != nil {
+			s.logger.Error("scan allocation", "error", err)
+			continue
+		}
+		a.PayoutID = payoutID.String
+		out = append(out, a)
+	}
+	return out
+}
+
 // ─── Holdings ────────────────────────────────────────────
 
 func (s *PGStore) ListHoldings() []domain.Holding {
@@ -1308,6 +1348,133 @@ func (s *PGStore) UpsertBar(b *domain.MarketBar) (bool, error) {
 	}
 	n, _ := res.RowsAffected()
 	return n > 0, nil
+}
+
+// ─── Wheel Cycles ─────────────────────────────────────────
+
+func (s *PGStore) ListWheelCycles() []domain.WheelCycle {
+	rows, err := s.db.Query(`SELECT id, underlying, status, mode, marine_id, broker, started_at, closed_at, total_premium_collected, cost_basis, shares_held, metadata FROM wheel_cycles ORDER BY started_at DESC`)
+	if err != nil {
+		s.logger.Error("list wheel cycles", "error", err)
+		return nil
+	}
+	defer rows.Close()
+
+	var out []domain.WheelCycle
+	for rows.Next() {
+		var c domain.WheelCycle
+		var marineID, broker sql.NullString
+		var closedAt *time.Time
+		var costBasis sql.NullFloat64
+		var meta []byte
+		if err := rows.Scan(&c.ID, &c.Underlying, &c.Status, &c.Mode, &marineID, &broker, &c.StartedAt, &closedAt, &c.TotalPremiumCollected, &costBasis, &c.SharesHeld, &meta); err != nil {
+			s.logger.Error("scan wheel cycle", "error", err)
+			continue
+		}
+		c.MarineID = marineID.String
+		c.Broker = broker.String
+		c.ClosedAt = closedAt
+		c.CostBasis = costBasis.Float64
+		if len(meta) > 0 {
+			json.Unmarshal(meta, &c.Metadata)
+		}
+		out = append(out, c)
+	}
+	return out
+}
+
+func (s *PGStore) CreateWheelCycle(c *domain.WheelCycle) error {
+	if c.StartedAt.IsZero() {
+		c.StartedAt = time.Now()
+	}
+	if c.Status == "" {
+		c.Status = "selling_puts"
+	}
+	if c.Mode == "" {
+		c.Mode = "manual"
+	}
+	meta, _ := json.Marshal(c.Metadata)
+	_, err := s.db.Exec(`INSERT INTO wheel_cycles (id, underlying, status, mode, marine_id, broker, started_at, closed_at, total_premium_collected, cost_basis, shares_held, metadata) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+		c.ID, c.Underlying, c.Status, c.Mode, nullStr(c.MarineID), nullStr(c.Broker), c.StartedAt, c.ClosedAt, c.TotalPremiumCollected, c.CostBasis, c.SharesHeld, meta)
+	if err != nil {
+		return fmt.Errorf("wheel cycle %q: %w", c.ID, err)
+	}
+	return nil
+}
+
+func (s *PGStore) UpdateWheelCycle(c *domain.WheelCycle) error {
+	meta, _ := json.Marshal(c.Metadata)
+	res, err := s.db.Exec(`UPDATE wheel_cycles SET underlying=$2, status=$3, mode=$4, marine_id=$5, broker=$6, started_at=$7, closed_at=$8, total_premium_collected=$9, cost_basis=$10, shares_held=$11, metadata=$12 WHERE id=$1`,
+		c.ID, c.Underlying, c.Status, c.Mode, nullStr(c.MarineID), nullStr(c.Broker), c.StartedAt, c.ClosedAt, c.TotalPremiumCollected, c.CostBasis, c.SharesHeld, meta)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return fmt.Errorf("wheel cycle %q not found", c.ID)
+	}
+	return nil
+}
+
+func (s *PGStore) ListWheelLegs(cycleID string) []domain.WheelLeg {
+	rows, err := s.db.Query(`SELECT id, cycle_id, leg_type, symbol, strike, expiration, option_type, quantity, premium, fill_price, opened_at, closed_at, status, notes FROM wheel_legs WHERE cycle_id=$1 ORDER BY opened_at`, cycleID)
+	if err != nil {
+		s.logger.Error("list wheel legs", "error", err)
+		return nil
+	}
+	defer rows.Close()
+
+	var out []domain.WheelLeg
+	for rows.Next() {
+		var l domain.WheelLeg
+		var strike sql.NullFloat64
+		var expiration, optionType, notes sql.NullString
+		var premium, fillPrice sql.NullFloat64
+		var quantity sql.NullInt64
+		var closedAt *time.Time
+		if err := rows.Scan(&l.ID, &l.CycleID, &l.LegType, &l.Symbol, &strike, &expiration, &optionType, &quantity, &premium, &fillPrice, &l.OpenedAt, &closedAt, &l.Status, &notes); err != nil {
+			s.logger.Error("scan wheel leg", "error", err)
+			continue
+		}
+		l.Strike = strike.Float64
+		l.Expiration = expiration.String
+		l.OptionType = optionType.String
+		if quantity.Valid {
+			l.Quantity = int(quantity.Int64)
+		}
+		l.Premium = premium.Float64
+		l.FillPrice = fillPrice.Float64
+		l.ClosedAt = closedAt
+		l.Notes = notes.String
+		out = append(out, l)
+	}
+	return out
+}
+
+func (s *PGStore) CreateWheelLeg(l *domain.WheelLeg) error {
+	if l.OpenedAt.IsZero() {
+		l.OpenedAt = time.Now()
+	}
+	if l.Status == "" {
+		l.Status = "open"
+	}
+	_, err := s.db.Exec(`INSERT INTO wheel_legs (id, cycle_id, leg_type, symbol, strike, expiration, option_type, quantity, premium, fill_price, opened_at, closed_at, status, notes) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+		l.ID, l.CycleID, l.LegType, l.Symbol, l.Strike, nullStr(l.Expiration), nullStr(l.OptionType), l.Quantity, l.Premium, l.FillPrice, l.OpenedAt, l.ClosedAt, l.Status, nullStr(l.Notes))
+	if err != nil {
+		return fmt.Errorf("wheel leg %q: %w", l.ID, err)
+	}
+	return nil
+}
+
+func (s *PGStore) UpdateWheelLeg(l *domain.WheelLeg) error {
+	res, err := s.db.Exec(`UPDATE wheel_legs SET cycle_id=$2, leg_type=$3, symbol=$4, strike=$5, expiration=$6, option_type=$7, quantity=$8, premium=$9, fill_price=$10, opened_at=$11, closed_at=$12, status=$13, notes=$14 WHERE id=$1`,
+		l.ID, l.CycleID, l.LegType, l.Symbol, l.Strike, nullStr(l.Expiration), nullStr(l.OptionType), l.Quantity, l.Premium, l.FillPrice, l.OpenedAt, l.ClosedAt, l.Status, nullStr(l.Notes))
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return fmt.Errorf("wheel leg %q not found", l.ID)
+	}
+	return nil
 }
 
 func nullStr(s string) interface{} {
