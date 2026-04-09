@@ -9,6 +9,7 @@ const path = require('path');
 
 const PORT = process.env.AURUM_PORT || 3000;
 const PRIMARCH_URL = process.env.PRIMARCH_URL || 'http://localhost:8401';
+const PRIMARCH_TOKEN = process.env.PRIMARCH_SERVICE_TOKEN || '';
 const proxyLib = PRIMARCH_URL.startsWith('https') ? https : http;
 
 const MIME = {
@@ -26,7 +27,7 @@ const server = http.createServer((req, res) => {
   if (req.url.startsWith('/api/') || req.url === '/health' || req.url === '/ws') {
     const proxyReq = proxyLib.request(
       `${PRIMARCH_URL}${req.url}`,
-      { method: req.method, headers: { ...req.headers, host: new URL(PRIMARCH_URL).host } },
+      { method: req.method, headers: { ...req.headers, host: new URL(PRIMARCH_URL).host, ...(PRIMARCH_TOKEN ? { authorization: `Bearer ${PRIMARCH_TOKEN}` } : {}) } },
       (proxyRes) => {
         res.writeHead(proxyRes.statusCode, proxyRes.headers);
         proxyRes.pipe(res);
