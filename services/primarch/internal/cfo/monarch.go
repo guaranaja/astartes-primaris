@@ -93,6 +93,13 @@ func (c *MonarchClient) query(gql string, variables map[string]interface{}, out 
 		return fmt.Errorf("monarch request: %w", err)
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+		return fmt.Errorf("MONARCH TOKEN EXPIRED OR INVALID (HTTP %d) — "+
+			"Log in to app.monarchmoney.com, open DevTools → Application → Local Storage, "+
+			"copy the gist.web.userToken value, then run: "+
+			"gcloud secrets versions add monarch-token --data-file=- <<< '<new-token>' "+
+			"and redeploy Primarch", resp.StatusCode)
+	}
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("monarch returned %d: %s", resp.StatusCode, string(body))
