@@ -63,6 +63,16 @@ func (s *Store) UpdateAccount(a *domain.TradingAccount) error {
 	return nil
 }
 
+func (s *Store) DeleteAccount(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, exists := s.accounts[id]; !exists {
+		return fmt.Errorf("account %q not found", id)
+	}
+	delete(s.accounts, id)
+	return nil
+}
+
 // ─── Payouts ────────────────────────────────────────────────
 
 func (s *Store) ListPayouts(accountID string) []domain.Payout {

@@ -806,6 +806,17 @@ func (s *PGStore) UpdateAccount(a *domain.TradingAccount) error {
 	return err
 }
 
+func (s *PGStore) DeleteAccount(id string) error {
+	res, err := s.db.Exec(`DELETE FROM trading_accounts WHERE id=$1`, id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return fmt.Errorf("account %q not found", id)
+	}
+	return nil
+}
+
 // ─── Payouts ────────────────────────────────────────────────
 
 func (s *PGStore) ListPayouts(accountID string) []domain.Payout {

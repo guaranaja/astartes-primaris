@@ -45,6 +45,7 @@ type DataStore interface {
 	GetAccount(id string) (*domain.TradingAccount, error)
 	CreateAccount(a *domain.TradingAccount) error
 	UpdateAccount(a *domain.TradingAccount) error
+	DeleteAccount(id string) error
 
 	// ─── Payouts ────────────────────────────────────────
 	ListPayouts(accountID string) []domain.Payout

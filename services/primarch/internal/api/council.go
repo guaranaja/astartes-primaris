@@ -19,8 +19,10 @@ func (s *Server) registerCouncilRoutes() {
 	// Trading accounts
 	s.mux.HandleFunc("GET /api/v1/council/accounts", s.handleListAccounts)
 	s.mux.HandleFunc("POST /api/v1/council/accounts", s.handleCreateAccount)
+	s.mux.HandleFunc("DELETE /api/v1/council/accounts", s.handleDeleteAllAccounts)
 	s.mux.HandleFunc("GET /api/v1/council/accounts/{id}", s.handleGetAccount)
 	s.mux.HandleFunc("PUT /api/v1/council/accounts/{id}", s.handleUpdateAccount)
+	s.mux.HandleFunc("DELETE /api/v1/council/accounts/{id}", s.handleDeleteAccount)
 
 	// Payouts
 	s.mux.HandleFunc("GET /api/v1/council/payouts", s.handleListPayouts)
@@ -160,6 +162,25 @@ func (s *Server) handleUpdateAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, a)
+}
+
+func (s *Server) handleDeleteAccount(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if err := s.store.DeleteAccount(id); err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	s.logger.Info("trading account deleted", "id", id)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleDeleteAllAccounts(w http.ResponseWriter, r *http.Request) {
+	accounts := s.store.ListAccounts()
+	for _, a := range accounts {
+		s.store.DeleteAccount(a.ID)
+	}
+	s.logger.Info("all trading accounts deleted", "count", len(accounts))
+	writeJSON(w, http.StatusOK, map[string]int{"deleted": len(accounts)})
 }
 
 // ─── Payouts ────────────────────────────────────────────────
