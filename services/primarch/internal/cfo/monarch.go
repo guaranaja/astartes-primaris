@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-const monarchGraphQLURL = "https://api.monarchmoney.com/graphql"
+const monarchGraphQLURL = "https://api.monarch.com/graphql"
 
 // MonarchClient talks to the Monarch Money GraphQL API.
 type MonarchClient struct {
@@ -95,7 +95,7 @@ func (c *MonarchClient) query(gql string, variables map[string]interface{}, out 
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
 		return fmt.Errorf("MONARCH TOKEN EXPIRED OR INVALID (HTTP %d) — "+
-			"Log in to app.monarchmoney.com, open DevTools → Application → Local Storage, "+
+			"Log in to app.monarch.com, open DevTools → Network tab → click a graphql request → copy Authorization header token, "+
 			"copy the gist.web.userToken value, then run: "+
 			"gcloud secrets versions add monarch-token --data-file=- <<< '<new-token>' "+
 			"and redeploy Primarch", resp.StatusCode)
