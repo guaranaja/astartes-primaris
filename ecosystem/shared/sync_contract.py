@@ -103,6 +103,20 @@ class TradeSync:
 # ── Account Snapshot ──────────────────────────────────────
 
 
+class AccountPhase(str, Enum):
+    """Lifecycle phase — determines cash-value eligibility.
+
+    combine/paper = NO cash value (sim/evaluation)
+    fxt/live      = REAL cash value (withdrawal-eligible)
+    blown         = dead, no value
+    """
+    COMBINE = "combine"   # Evaluation — no cash value
+    FXT = "fxt"           # Funded (crossed the Rubicon) — real cash
+    LIVE = "live"         # Fully live — real cash
+    BLOWN = "blown"       # Account blown — no value
+    PAPER = "paper"       # Paper/sim — no cash value
+
+
 @dataclass
 class AccountSnapshot:
     """Full account state at a point in time."""
@@ -117,6 +131,8 @@ class AccountSnapshot:
     profit_split: float = 0.90
     status: str = "active"
     instruments: list = field(default_factory=list)
+    # Lifecycle phase — engines MUST set this so Primaris knows cash-value status
+    account_phase: str = AccountPhase.COMBINE
     # Optional risk fields
     max_loss_limit: Optional[float] = None
     profit_target: Optional[float] = None

@@ -303,14 +303,14 @@
     <!-- ═══ VIEW: Council ════════════════════════════════════ -->
     <div class="view" id="view-council">
 
-      <!-- Phase Progression -->
+      <!-- Strategy Progression -->
       <div class="section">
         <div class="section-header">
-          <h2>Career Roadmap</h2>
-          <span class="badge" id="currentPhaseLabel">INITIATE</span>
+          <h2>Strategy Progression</h2>
+          <span class="badge" id="currentPhaseLabel">ASPIRANT</span>
         </div>
         <div id="phaseTracker" class="phase-tracker">
-          <div class="empty-state">Loading roadmap...</div>
+          <div class="empty-state">Loading progression...</div>
         </div>
       </div>
 
@@ -359,10 +359,16 @@
               <div class="stat">
                 <span class="stat-label">Lifetime P&L</span>
                 <span class="stat-value" id="bizLifetimePnl">$0</span>
+                <div id="bizFundedBreakdown" style="display:flex;gap:8px;margin-top:2px"></div>
               </div>
               <div class="stat">
                 <span class="stat-label">Total Payouts</span>
                 <span class="stat-value" id="bizLifetimePayouts">$0</span>
+              </div>
+              <div class="stat">
+                <span class="stat-label">Funded Capital</span>
+                <span class="stat-value" id="bizFundedCapital" style="color:var(--green)">$0</span>
+                <div id="bizAcctBreakdown" style="display:flex;gap:8px;margin-top:2px"></div>
               </div>
               <div class="stat">
                 <span class="stat-label">Monthly Net</span>
@@ -410,6 +416,14 @@
             </div>
           </div>
 
+          <!-- Unified Budgets (Monarch + CFO Engine) -->
+          <div class="section">
+            <div class="section-header"><h2>Budgets</h2></div>
+            <div id="unifiedBudgetList">
+              <div class="empty-state">Loading budgets...</div>
+            </div>
+          </div>
+
           <!-- Billing & Expenses -->
           <div class="section">
             <div class="section-header">
@@ -419,25 +433,26 @@
             <div class="billing-summary" id="billingSummary">
               <div class="billing-header">
                 <div class="billing-stat">
-                  <span class="billing-stat-label">Monthly Bills</span>
+                  <span class="billing-stat-label">Life Bills</span>
+                  <span class="billing-stat-value" id="billingLife">$0</span>
+                </div>
+                <div class="billing-stat">
+                  <span class="billing-stat-label">System Costs</span>
+                  <span class="billing-stat-value" id="billingSystem">$0</span>
+                </div>
+                <div class="billing-stat">
+                  <span class="billing-stat-label">Total Monthly</span>
                   <span class="billing-stat-value" id="billingTotal">$0</span>
                 </div>
                 <div class="billing-stat">
-                  <span class="billing-stat-label">Paid</span>
-                  <span class="billing-stat-value positive" id="billingPaid">$0</span>
-                </div>
-                <div class="billing-stat">
-                  <span class="billing-stat-label">Pending</span>
-                  <span class="billing-stat-value" id="billingPending">$0</span>
-                </div>
-                <div class="billing-stat">
                   <span class="billing-stat-label">Trading Coverage</span>
-                  <span class="billing-stat-value" id="billingCoverage">0%</span>
+                  <span class="billing-stat-value" id="billingCoverage" style="color:var(--gold)">0%</span>
                 </div>
               </div>
+              <div id="billingCoverageBar" style="margin-top:8px"></div>
             </div>
             <div id="expenseList" class="expense-list">
-              <div class="empty-state">No expenses tracked yet</div>
+              <div class="empty-state">Loading bills...</div>
             </div>
           </div>
         </div>
@@ -447,38 +462,8 @@
     <!-- ═══ VIEW: Prop Desk ═══════════════════════════════ -->
     <div class="view" id="view-prop">
 
-      <!-- Prop Aggregate Banner -->
-      <div class="summary-banner" id="propBanner">
-        <div class="summary-item">
-          <span class="summary-label">Prop Accounts</span>
-          <span class="summary-value" id="propAcctCount">0</span>
-        </div>
-        <div class="summary-divider"></div>
-        <div class="summary-item">
-          <span class="summary-label">Total Capital</span>
-          <span class="summary-value" id="propTotalCapital">$0</span>
-        </div>
-        <div class="summary-divider"></div>
-        <div class="summary-item">
-          <span class="summary-label">Total P&L</span>
-          <span class="summary-value" id="propTotalPnl">$0</span>
-        </div>
-        <div class="summary-divider"></div>
-        <div class="summary-item">
-          <span class="summary-label">Available Profit</span>
-          <span class="summary-value" id="propAvailProfit" style="color:var(--green)">$0</span>
-        </div>
-        <div class="summary-divider"></div>
-        <div class="summary-item">
-          <span class="summary-label">Lifetime Payouts</span>
-          <span class="summary-value" id="propLifetimePayouts" style="color:var(--gold)">$0</span>
-        </div>
-        <div class="summary-divider"></div>
-        <div class="summary-item">
-          <span class="summary-label">Avg Split</span>
-          <span class="summary-value" id="propAvgSplit">0%</span>
-        </div>
-      </div>
+      <!-- Prop Aggregate Banner (dynamically rendered) -->
+      <div id="propBanner"></div>
 
       <div class="prop-layout">
         <!-- Left: Account Cards -->

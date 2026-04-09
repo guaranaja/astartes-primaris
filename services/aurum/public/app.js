@@ -25,6 +25,7 @@ const App = {
     goals: [],
     expenses: [],
     billing: null,
+    unifiedBudgets: [],
   },
 
   // ─── Init ──────────────────────────────────────────────
@@ -784,7 +785,7 @@ const App = {
 
   async loadCouncil() {
     try {
-      const [roadmap, accounts, payouts, budget, allocations, advice, metrics, goals, expenses, billing] = await Promise.all([
+      const [roadmap, accounts, payouts, budget, allocations, advice, metrics, goals, expenses, billing, budgets] = await Promise.all([
         this.api('/council/roadmap'),
         this.api('/council/accounts'),
         this.api('/council/payouts'),
@@ -795,6 +796,7 @@ const App = {
         this.api('/council/goals'),
         this.api('/council/expenses'),
         this.api('/council/billing'),
+        this.api('/council/budgets').catch(() => null),
       ]);
       this.state.roadmap = roadmap;
       this.state.accounts = accounts || [];
@@ -806,6 +808,7 @@ const App = {
       this.state.goals = goals || [];
       this.state.expenses = expenses || [];
       this.state.billing = billing;
+      this.state.unifiedBudgets = budgets || [];
       this.renderCouncil();
     } catch (e) {
       // Primarch might not be running
@@ -821,6 +824,7 @@ const App = {
     this.renderAllocations();
     this.renderGoals();
     this.renderBilling();
+    this.renderUnifiedBudgets();
     this.renderSummaryBanner();
     this.renderPropDesk();
   },
@@ -830,8 +834,72 @@ const App = {
     if (!rm) return;
     const el = document.getElementById('phaseTracker');
     const label = document.getElementById('currentPhaseLabel');
-    label.textContent = (rm.current_phase || 'initiate').toUpperCase().replace('_', ' ');
 
+    const tracks = rm.strategy_tracks || [];
+
+    // If we have strategy tracks, render per-strategy progression
+    if (tracks.length > 0) {
+      label.textContent = tracks.some(t => t.rubicon_date) ? 'ASTARTES' : 'ASPIRANT';
+
+      const rankOrder = ['initiate', 'neophyte', 'astartes', 'veteran', 'captain', 'chapter_master'];
+      const rankLabels = {
+        initiate: 'Initiate', neophyte: 'Neophyte', astartes: 'Astartes',
+        veteran: 'Veteran', captain: 'Captain', chapter_master: 'Chapter Master'
+      };
+      const rankColors = {
+        initiate: 'var(--text-3)', neophyte: 'var(--accent)', astartes: 'var(--green)',
+        veteran: 'var(--gold)', captain: 'var(--gold)', chapter_master: 'var(--gold)'
+      };
+
+      el.innerHTML = tracks.map(t => {
+        const rankIdx = rankOrder.indexOf(t.current_rank);
+        const crossedRubicon = !!t.rubicon_date;
+        const m = t.metrics || {};
+        const winRate = m.win_rate ? m.win_rate.toFixed(0) + '%' : '—';
+        const profitDays = m.profitable_days || 0;
+        const totalDays = m.total_trading_days || 0;
+
+        return `
+          <div class="strategy-track ${crossedRubicon ? 'rubicon-crossed' : ''}">
+            <div class="track-header">
+              <span class="track-name">${esc(t.name)}</span>
+              <span class="track-rank" style="color:${rankColors[t.current_rank] || 'var(--text-3)'}">
+                ${rankLabels[t.current_rank] || t.current_rank}
+              </span>
+            </div>
+
+            <div class="track-progression">
+              ${rankOrder.map((rank, i) => {
+                const isCurrent = rank === t.current_rank;
+                const isPast = i < rankIdx;
+                const isRubicon = rank === 'astartes';
+                let cls = isPast ? 'completed' : isCurrent ? 'active' : 'locked';
+                return `<div class="track-rank-pip ${cls} ${isRubicon ? 'rubicon-pip' : ''}">
+                  <div class="pip-dot"></div>
+                  <span class="pip-label">${isRubicon ? 'RUBICON' : rankLabels[rank]}</span>
+                </div>`;
+              }).join('<div class="pip-line"></div>')}
+            </div>
+
+            ${crossedRubicon ? `
+              <div class="rubicon-banner">
+                CROSSED THE RUBICON — ${t.rubicon_date}
+              </div>` : ''}
+
+            <div class="track-metrics">
+              <span>${profitDays}/${totalDays} profit days</span>
+              <span>Win rate: ${winRate}</span>
+              ${m.accounts_funded ? `<span>${m.accounts_funded} funded</span>` : ''}
+              ${m.accounts_blown ? `<span style="color:var(--red)">${m.accounts_blown} blown</span>` : ''}
+              ${m.total_payouts ? `<span style="color:var(--green)">$${fmt(m.total_payouts)} paid out</span>` : ''}
+            </div>
+          </div>`;
+      }).join('');
+      return;
+    }
+
+    // Fallback: legacy phase tracker
+    label.textContent = (rm.current_phase || 'initiate').toUpperCase().replace('_', ' ');
     el.innerHTML = rm.phases.map(p => {
       let cls = 'locked';
       if (p.active) cls = 'active';
@@ -868,8 +936,23 @@ const App = {
       el.innerHTML = '<div class="empty-state">No accounts yet. Add your trading accounts to start tracking.</div>';
       return;
     }
-    el.innerHTML = this.state.accounts.map(a => {
+
+    const phase = a => a.account_phase || (a.status === 'blown' ? 'blown' : (a.type === 'paper' ? 'paper' : 'combine'));
+    const isFunded = a => ['fxt', 'live'].includes(phase(a)) && a.status === 'active';
+    const isPaper = a => a.type === 'paper';
+    const isBlown = a => phase(a) === 'blown' || a.status === 'blown';
+    const isEval = a => !isFunded(a) && !isPaper(a) && !isBlown(a) && a.status === 'active';
+
+    const groups = [
+      { key: 'funded', label: 'Funded', color: 'var(--green)', accounts: this.state.accounts.filter(isFunded) },
+      { key: 'eval', label: 'Evaluation', color: 'var(--accent)', accounts: this.state.accounts.filter(isEval) },
+      { key: 'paper', label: 'Paper / Sim', color: 'var(--text-3)', accounts: this.state.accounts.filter(isPaper) },
+      { key: 'blown', label: 'Blown', color: 'var(--red)', accounts: this.state.accounts.filter(isBlown) },
+    ].filter(g => g.accounts.length > 0);
+
+    const renderCard = (a, dimBalance) => {
       const pnlClass = a.total_pnl >= 0 ? 'positive' : 'negative';
+      const balStyle = dimBalance ? ' style="color:var(--text-3)"' : '';
       return `
         <div class="account-card">
           <span class="account-type-badge ${a.type}">${a.type}</span>
@@ -878,9 +961,23 @@ const App = {
             <div class="account-detail">${esc(a.broker)} · ${(a.instruments || []).join(', ') || 'N/A'} · ${a.payout_count} payouts</div>
           </div>
           <div class="account-balance">
-            <div class="account-balance-value">$${fmt(a.current_balance)}</div>
+            <div class="account-balance-value"${balStyle}>$${fmt(a.current_balance)}</div>
             <div class="account-balance-pnl ${pnlClass}">${a.total_pnl >= 0 ? '+' : ''}$${fmt(a.total_pnl)} · ${Math.round(a.profit_split * 100)}% split</div>
           </div>
+        </div>`;
+    };
+
+    el.innerHTML = groups.map(g => {
+      const dimBalance = g.key !== 'funded';
+      const groupTotal = g.accounts.reduce((s, a) => s + a.current_balance, 0);
+      const cashLabel = g.key === 'funded' ? '' : '<span style="font-size:9px;color:var(--text-3);margin-left:6px">NO CASH VALUE</span>';
+      return `
+        <div class="account-group">
+          <div class="account-group-header" style="border-left:3px solid ${g.color}">
+            <span style="color:${g.color};font-size:10px;text-transform:uppercase;letter-spacing:1px;font-weight:700">${g.label}</span>
+            <span style="font-size:11px;color:var(--text-3)">${g.accounts.length} acct${g.accounts.length !== 1 ? 's' : ''}${g.key === 'funded' ? ' · $' + fmt(groupTotal) : ''}${cashLabel}</span>
+          </div>
+          ${g.accounts.map(a => renderCard(a, dimBalance)).join('')}
         </div>`;
     }).join('');
   },
@@ -929,6 +1026,11 @@ const App = {
   renderBusinessMetrics() {
     const m = this.state.metrics;
     if (!m) return;
+    // Funded P&L (real cash) vs total
+    const fundedPnl = m.funded_pnl || 0;
+    const simPnl = m.sim_pnl || 0;
+    const fundedCap = m.funded_capital || 0;
+
     setText('bizLifetimePnl', '$' + fmt(m.lifetime_pnl));
     setText('bizLifetimePayouts', '$' + fmt(m.lifetime_payouts));
     setText('bizMonthlyNet', '$' + fmt(m.monthly_net_income));
@@ -937,6 +1039,24 @@ const App = {
     setText('bizPhase', (m.current_phase || '—').replace('_', ' '));
     setText('bizProfitDays', m.profitable_days + '/' + m.total_trading_days);
     setText('bizBlown', m.accounts_blown);
+
+    // Inject funded/sim breakdown below lifetime P&L
+    const fundedEl = document.getElementById('bizFundedBreakdown');
+    if (fundedEl) {
+      fundedEl.innerHTML = `
+        <span style="color:var(--green);font-size:10px">Funded: ${fundedPnl >= 0 ? '+' : ''}$${fmt(fundedPnl)}</span>
+        <span style="color:var(--text-3);font-size:10px">Sim: ${simPnl >= 0 ? '+' : ''}$${fmt(simPnl)}</span>`;
+    }
+    const fundedCapEl = document.getElementById('bizFundedCapital');
+    if (fundedCapEl) {
+      fundedCapEl.textContent = '$' + fmt(fundedCap);
+    }
+    const acctBreakdown = document.getElementById('bizAcctBreakdown');
+    if (acctBreakdown) {
+      acctBreakdown.innerHTML = `
+        <span style="color:var(--green);font-size:10px">${m.accounts_funded || 0} funded</span>
+        <span style="color:var(--accent);font-size:10px">${m.accounts_in_combine || 0} combine</span>`;
+    }
   },
 
   renderAllocations() {
@@ -1016,35 +1136,119 @@ const App = {
   renderBilling() {
     const b = this.state.billing;
     if (b) {
+      setText('billingLife', '$' + fmt(b.life_expenses || 0));
+      setText('billingSystem', '$' + fmt(b.system_expenses || 0));
       setText('billingTotal', '$' + fmt(b.total_expenses));
-      setText('billingPaid', '$' + fmt(b.total_paid));
-      setText('billingPending', '$' + fmt(b.total_pending));
-      setText('billingCoverage', Math.round((b.trading_coverage || 0) * 100) + '%');
+      const coverage = Math.round((b.trading_coverage || 0) * 100);
+      setText('billingCoverage', coverage + '%');
+
+      // Coverage bar — how much of real life is funded by trading
+      const barEl = document.getElementById('billingCoverageBar');
+      if (barEl && (b.life_expenses || 0) > 0) {
+        const coverColor = coverage >= 100 ? 'var(--green)' : coverage >= 50 ? 'var(--gold)' : 'var(--red)';
+        barEl.innerHTML = `
+          <div style="font-size:10px;color:var(--text-3);margin-bottom:3px;text-transform:uppercase;letter-spacing:0.8px">Bot funding real life</div>
+          <div class="progress-bar"><div class="progress-fill" style="width:${Math.min(coverage,100)}%;background:${coverColor}"></div></div>`;
+      }
     }
 
+    // Merge unified bills from billing API + manual expenses
+    const bills = (b && b.bills) || [];
+    const manual = this.state.expenses || [];
+    const lifeBills = bills.filter(e => e.kind === 'life');
+    const systemBills = bills.filter(e => e.kind === 'system');
+    // Manual expenses that aren't already in the unified list
+    const manualOnly = manual.filter(e => !e.source);
+
     const el = document.getElementById('expenseList');
-    if (!this.state.expenses.length) {
-      el.innerHTML = '<div class="empty-state">No expenses tracked — add your bills</div>';
+    if (!lifeBills.length && !systemBills.length && !manualOnly.length) {
+      el.innerHTML = '<div class="empty-state">Connect Monarch to see real-life bills</div>';
       return;
     }
-    el.innerHTML = this.state.expenses.map(e => {
-      // Handle both Firefly III bills (source, repeat_freq) and store expenses (category, frequency)
-      const isFirefly = !!e.source;
-      const freq = e.repeat_freq || e.frequency || '';
-      const cat = e.category || e.source || '';
+
+    const renderBill = (e, isManual) => {
+      const sourceTag = e.source === 'family'
+        ? '<span class="expense-autopay" style="background:var(--accent)">Monarch</span>'
+        : e.source === 'personal'
+          ? '<span class="expense-autopay" style="background:var(--blue)">CFO</span>'
+          : '';
       return `
         <div class="expense-item">
           <span class="expense-name">${esc(e.name)}</span>
-          <span class="expense-category">${esc(cat)}</span>
+          <span class="expense-category">${esc(e.category || '')}</span>
           <span class="expense-amount">$${fmt(e.amount)}</span>
-          <span class="expense-freq">${freq}</span>
-          ${e.auto_pay ? '<span class="expense-autopay">AUTO</span>' : ''}
-          ${isFirefly ? '<span class="expense-autopay" style="background:var(--blue)">CFO</span>' : ''}
-          ${!isFirefly ? `<div class="expense-actions">
+          <span class="expense-freq">${e.repeat_freq || e.frequency || 'monthly'}</span>
+          ${sourceTag}
+          ${isManual ? `<div class="expense-actions">
             <button class="btn btn-sm" onclick="event.stopPropagation(); App.payExpense('${e.id}', '${esc(e.name)}', ${e.amount})" title="Record payment">Pay</button>
           </div>` : ''}
         </div>`;
-    }).join('');
+    };
+
+    let html = '';
+    if (lifeBills.length) {
+      html += `<div class="account-group">
+        <div class="account-group-header" style="border-left:3px solid var(--accent)">
+          <span style="color:var(--accent);font-size:10px;text-transform:uppercase;letter-spacing:1px;font-weight:700">Life Bills</span>
+          <span style="font-size:11px;color:var(--text-3)">${lifeBills.length} bills · $${fmt(lifeBills.reduce((s,b) => s + b.amount, 0))}/mo</span>
+        </div>
+        ${lifeBills.map(e => renderBill(e, false)).join('')}
+      </div>`;
+    }
+    if (systemBills.length || manualOnly.length) {
+      const allSystem = [...systemBills, ...manualOnly];
+      html += `<div class="account-group">
+        <div class="account-group-header" style="border-left:3px solid var(--gold)">
+          <span style="color:var(--gold);font-size:10px;text-transform:uppercase;letter-spacing:1px;font-weight:700">System Costs</span>
+          <span style="font-size:11px;color:var(--text-3)">${allSystem.length} items · $${fmt(allSystem.reduce((s,b) => s + b.amount, 0))}/mo</span>
+        </div>
+        ${allSystem.map(e => renderBill(e, !e.source)).join('')}
+      </div>`;
+    }
+    el.innerHTML = html;
+  },
+
+  renderUnifiedBudgets() {
+    const el = document.getElementById('unifiedBudgetList');
+    if (!el) return;
+    const budgets = this.state.unifiedBudgets || [];
+    if (!budgets.length) {
+      el.innerHTML = '<div class="empty-state">No budgets — connect Monarch or CFO Engine</div>';
+      return;
+    }
+
+    const sourceLabel = { personal: 'CFO', family: 'Monarch' };
+    const sourceColor = { personal: 'var(--blue)', family: 'var(--accent)' };
+
+    // Group by source
+    const personal = budgets.filter(b => b.source === 'personal');
+    const family = budgets.filter(b => b.source === 'family');
+    const groups = [];
+    if (family.length) groups.push({ label: 'Family (Monarch)', color: 'var(--accent)', items: family });
+    if (personal.length) groups.push({ label: 'Personal (CFO)', color: 'var(--blue)', items: personal });
+
+    el.innerHTML = groups.map(g => `
+      <div class="budget-group">
+        <div class="account-group-header" style="border-left:3px solid ${g.color}">
+          <span style="color:${g.color};font-size:10px;text-transform:uppercase;letter-spacing:1px;font-weight:700">${g.label}</span>
+          <span style="font-size:11px;color:var(--text-3)">${g.items.length} categories</span>
+        </div>
+        ${g.items.map(b => {
+          const pct = b.budgeted > 0 ? Math.min((b.spent / b.budgeted) * 100, 100) : 0;
+          const remaining = b.budgeted - b.spent;
+          const overBudget = remaining < 0;
+          const barColor = overBudget ? 'var(--red)' : pct > 80 ? 'var(--gold)' : 'var(--green)';
+          return `
+            <div class="budget-row">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px">
+                <span style="font-size:12px;font-weight:600">${esc(b.category)}</span>
+                <span style="font-size:11px;font-family:var(--font-mono);color:${overBudget ? 'var(--red)' : 'var(--text-2)'}">$${fmt(b.spent)} / $${fmt(b.budgeted)}</span>
+              </div>
+              <div class="progress-bar"><div class="progress-fill" style="width:${pct}%;background:${barColor}"></div></div>
+            </div>`;
+        }).join('')}
+      </div>
+    `).join('');
   },
 
   addGoal() {
@@ -1444,33 +1648,128 @@ const App = {
       propAccounts.some(a => a.id === w.account_id || a.name === w.account_name)
     );
 
+    // Sort: phase class (live > fxt > combine > blown), then by return % descending
+    const phaseOrder = { live: 0, fxt: 1, combine: 2, blown: 3 };
+    const sorted = [...propAccounts].sort((a, b) => {
+      const pa = a.account_phase || (a.status === 'blown' ? 'blown' : 'combine');
+      const pb = b.account_phase || (b.status === 'blown' ? 'blown' : 'combine');
+      const classDiff = (phaseOrder[pa] ?? 2) - (phaseOrder[pb] ?? 2);
+      if (classDiff !== 0) return classDiff;
+      // Within same phase: sort by return % descending
+      const retA = a.initial_balance > 0 ? (a.current_balance - a.initial_balance) / a.initial_balance : 0;
+      const retB = b.initial_balance > 0 ? (b.current_balance - b.initial_balance) / b.initial_balance : 0;
+      return retB - retA;
+    });
+
     this.renderPropBanner(propAccounts, propPayouts);
-    this.renderPropAccountCards(propAccounts);
+    this.renderPropAccountCards(sorted);
     this.renderPropWithdrawals(propAdvice);
     this.renderPropPayoutTable(propAccounts, propPayouts);
     this.renderPropMetrics(propAccounts, propPayouts);
   },
 
   renderPropBanner(accounts, payouts) {
-    const active = accounts.filter(a => a.status === 'active');
-    const totalCapital = active.reduce((s, a) => s + a.current_balance, 0);
-    const totalPnl = accounts.reduce((s, a) => s + a.total_pnl, 0);
-    const availProfit = active.reduce((s, a) => s + Math.max(0, a.current_balance - a.initial_balance), 0);
-    const lifetimePayouts = accounts.reduce((s, a) => s + a.total_payouts, 0);
-    const avgSplit = active.length > 0
-      ? active.reduce((s, a) => s + a.profit_split, 0) / active.length
-      : 0;
+    const el = document.getElementById('propBanner');
+    const phase = a => a.account_phase || (a.status === 'blown' ? 'blown' : 'combine');
 
-    setText('propAcctCount', accounts.length);
-    setText('propTotalCapital', '$' + fmt(totalCapital));
-    const pnlEl = document.getElementById('propTotalPnl');
-    if (pnlEl) {
-      pnlEl.textContent = (totalPnl >= 0 ? '+$' : '-$') + fmt(Math.abs(totalPnl));
-      pnlEl.style.color = totalPnl >= 0 ? 'var(--green)' : 'var(--red)';
+    const funded = accounts.filter(a => ['fxt', 'live'].includes(phase(a)) && a.status === 'active');
+    const combines = accounts.filter(a => phase(a) === 'combine' && a.status === 'active');
+    const blown = accounts.filter(a => phase(a) === 'blown' || a.status === 'blown');
+
+    const sumBal = arr => arr.reduce((s, a) => s + a.current_balance, 0);
+    const sumPnl = arr => arr.reduce((s, a) => s + (a.current_balance - a.initial_balance), 0);
+    const pnlStr = v => `<span style="color:${v >= 0 ? 'var(--green)' : 'var(--red)'}">${v >= 0 ? '+$' : '-$'}${fmt(Math.abs(v))}</span>`;
+
+    const fundedCapital = sumBal(funded);
+    const fundedPnl = sumPnl(funded);
+    const fundedAvail = funded.reduce((s, a) => s + Math.max(0, a.current_balance - a.initial_balance), 0);
+    const fundedPayouts = funded.reduce((s, a) => s + a.total_payouts, 0);
+    const avgSplit = funded.length > 0
+      ? funded.reduce((s, a) => s + a.profit_split, 0) / funded.length : 0;
+
+    const combCapital = sumBal(combines);
+    const combPnl = sumPnl(combines);
+    const combAvgProgress = combines.length > 0
+      ? combines.reduce((s, a) => s + (a.combine_progress_pct || 0), 0) / combines.length : 0;
+
+    const blownLost = blown.reduce((s, a) => s + Math.abs(a.current_balance - a.initial_balance), 0);
+
+    const segments = [];
+
+    // Funded segment — real cash value
+    segments.push(`
+      <div class="prop-banner-segment funded">
+        <div class="prop-segment-header">
+          <span class="prop-segment-title" style="color:var(--green)">Funded</span>
+          <span class="prop-segment-count">${funded.length} account${funded.length !== 1 ? 's' : ''}</span>
+        </div>
+        <div class="prop-segment-stats">
+          <div class="prop-segment-stat">
+            <span class="stat-label">Capital</span>
+            <span class="stat-value">$${fmt(fundedCapital)}</span>
+          </div>
+          <div class="prop-segment-stat">
+            <span class="stat-label">P&L</span>
+            <span class="stat-value">${pnlStr(fundedPnl)}</span>
+          </div>
+          <div class="prop-segment-stat">
+            <span class="stat-label">Available</span>
+            <span class="stat-value" style="color:var(--green)">$${fmt(fundedAvail)}</span>
+          </div>
+          <div class="prop-segment-stat">
+            <span class="stat-label">Payouts</span>
+            <span class="stat-value" style="color:var(--gold)">$${fmt(fundedPayouts)}</span>
+          </div>
+          <div class="prop-segment-stat">
+            <span class="stat-label">Avg Split</span>
+            <span class="stat-value">${Math.round(avgSplit * 100)}%</span>
+          </div>
+        </div>
+      </div>`);
+
+    // Evaluation segment — no cash value
+    if (combines.length > 0) {
+      segments.push(`
+        <div class="prop-banner-segment evaluation">
+          <div class="prop-segment-header">
+            <span class="prop-segment-title" style="color:var(--accent)">Evaluation</span>
+            <span class="prop-segment-count">${combines.length} combine${combines.length !== 1 ? 's' : ''}</span>
+          </div>
+          <div class="prop-segment-stats">
+            <div class="prop-segment-stat">
+              <span class="stat-label">Sim Capital</span>
+              <span class="stat-value" style="color:var(--text-3)">$${fmt(combCapital)}</span>
+            </div>
+            <div class="prop-segment-stat">
+              <span class="stat-label">Sim P&L</span>
+              <span class="stat-value" style="color:var(--text-3)">${combPnl >= 0 ? '+' : '-'}$${fmt(Math.abs(combPnl))}</span>
+            </div>
+            <div class="prop-segment-stat">
+              <span class="stat-label">Avg Progress</span>
+              <span class="stat-value">${combAvgProgress.toFixed(0)}%</span>
+            </div>
+          </div>
+        </div>`);
     }
-    setText('propAvailProfit', '$' + fmt(availProfit));
-    setText('propLifetimePayouts', '$' + fmt(lifetimePayouts));
-    setText('propAvgSplit', Math.round(avgSplit * 100) + '%');
+
+    // Blown segment
+    if (blown.length > 0) {
+      segments.push(`
+        <div class="prop-banner-segment inactive">
+          <div class="prop-segment-header">
+            <span class="prop-segment-title" style="color:var(--red)">Blown</span>
+            <span class="prop-segment-count">${blown.length} account${blown.length !== 1 ? 's' : ''}</span>
+          </div>
+          <div class="prop-segment-stats">
+            <div class="prop-segment-stat">
+              <span class="stat-label">Fees Lost</span>
+              <span class="stat-value" style="color:var(--red)">$${fmt(blownLost)}</span>
+            </div>
+          </div>
+        </div>`);
+    }
+
+    el.innerHTML = `<div class="prop-banner-grid">${segments.join('')}</div>`;
   },
 
   renderPropAccountCards(accounts) {
@@ -1486,7 +1785,7 @@ const App = {
       const isActive = a.status === 'active';
       const phase = a.account_phase || (a.status === 'blown' ? 'blown' : 'combine');
       const phaseColors = { combine: 'var(--accent)', fxt: 'var(--green)', live: 'var(--gold)', blown: 'var(--red)' };
-      const phaseLabels = { combine: 'COMBINE', fxt: 'FUNDED (FXT)', live: 'LIVE', blown: 'BLOWN' };
+      const phaseLabels = { combine: 'COMBINE', fxt: 'FUNDED — RUBICON CROSSED', live: 'LIVE', blown: 'BLOWN' };
       const statusColor = phaseColors[phase] || 'var(--text-3)';
       const mllPct = a.mll_usage_pct || 0;
       const mllBarColor = mllPct > 80 ? 'var(--red)' : mllPct > 50 ? 'var(--gold)' : 'var(--green)';
@@ -1544,7 +1843,7 @@ const App = {
           <div class="prop-acct-details">
             ${a.combine_start_date ? `<div class="prop-detail-row"><span>Combine Started</span><span>${a.combine_start_date}</span></div>` : ''}
             ${a.combine_pass_date ? `<div class="prop-detail-row"><span>Combine Passed</span><span class="positive">${a.combine_pass_date}</span></div>` : ''}
-            ${a.funded_date ? `<div class="prop-detail-row"><span>Funded Date</span><span class="positive">${a.funded_date}</span></div>` : ''}
+            ${a.funded_date ? `<div class="prop-detail-row rubicon-row"><span>Crossed the Rubicon</span><span class="positive" style="color:var(--gold);font-weight:700">${a.funded_date}</span></div>` : ''}
             ${a.blown_date ? `<div class="prop-detail-row"><span>Blown Date</span><span class="negative">${a.blown_date}</span></div>` : ''}
             <div class="prop-detail-row">
               <span>Profit Split</span>
@@ -1575,11 +1874,12 @@ const App = {
             </div>
           </div>
 
-          ${isActive && profit > 500 ? `
+          ${phase === 'fxt' || phase === 'live' ? (isActive && profit > 500 ? `
             <div class="prop-acct-actions">
               <button class="btn btn-sm btn-primary" onclick="App.recordPayoutForAccount('${a.id}', '${esc(a.name)}', ${a.current_balance})">Request Payout</button>
-            </div>
-          ` : ''}
+            </div>` : '') : `
+            <div style="padding:8px 0;font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:0.8px">Not withdrawal-eligible</div>
+          `}
         </div>`;
     }).join('');
   },
@@ -1653,10 +1953,11 @@ const App = {
     const firmFeesYtd = yearPayouts.reduce((s, p) => s + (p.gross_amount - p.net_amount), 0);
 
     const active = accounts.filter(a => a.status === 'active');
+    const funded = active.filter(a => ['fxt', 'live'].includes(a.account_phase));
     const closed = accounts.filter(a => ['blown', 'closed', 'graduated'].includes(a.status));
 
-    const best = active.length > 0
-      ? active.reduce((best, a) => a.total_pnl > best.total_pnl ? a : best, active[0])
+    const best = funded.length > 0
+      ? funded.reduce((best, a) => a.total_pnl > best.total_pnl ? a : best, funded[0])
       : null;
 
     const avgPayoutsPerMonth = payouts.length > 0

@@ -27,6 +27,7 @@ func (s *Server) handleFinanceOverview(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Inject trading data from Council's existing store
+	// Only funded (fxt/live) accounts have real cash value
 	accounts := s.store.ListAccounts()
 	for _, a := range accounts {
 		overview.Accounts = append(overview.Accounts, cfo.UnifiedAccount{
@@ -37,8 +38,11 @@ func (s *Server) handleFinanceOverview(w http.ResponseWriter, r *http.Request) {
 			Balance:  a.CurrentBalance,
 			Currency: "USD",
 		})
-		overview.TradingValue += a.CurrentBalance
-		overview.TotalNetWorth += a.CurrentBalance
+		hasCashValue := (a.AccountPhase == "fxt" || a.AccountPhase == "live") && a.Status == "active"
+		if hasCashValue {
+			overview.TradingValue += a.CurrentBalance
+			overview.TotalNetWorth += a.CurrentBalance
+		}
 	}
 
 	// Trading P&L from metrics
@@ -61,13 +65,17 @@ func (s *Server) handleFinanceAccounts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Add trading accounts
+	// Add trading accounts with cash-value annotation
 	for _, a := range s.store.ListAccounts() {
+		acctType := string(a.Type)
+		if a.AccountPhase == "combine" || a.Type == "paper" {
+			acctType = acctType + ":sim" // downstream knows this has no cash value
+		}
 		overview.Accounts = append(overview.Accounts, cfo.UnifiedAccount{
 			ID:       "tr-" + a.ID,
 			Name:     a.Name,
 			Source:   cfo.SourceTrading,
-			Type:     string(a.Type),
+			Type:     acctType,
 			Balance:  a.CurrentBalance,
 			Currency: "USD",
 		})

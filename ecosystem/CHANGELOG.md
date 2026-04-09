@@ -15,6 +15,12 @@ The ecosystem sync agent reads this to identify unpropagated changes.
 
 ---
 
+## 2026-04-09 astartes-primaris — cash-value-demarcation
+**What changed:** Added `AccountPhase` enum and `account_phase` field to `AccountSnapshot` in sync_contract.py. Engines must report whether accounts are combine/fxt/live/paper/blown so Primaris can distinguish real cash from sim capital. Default is "combine" (backward compatible). Primaris now excludes sim accounts from TradingValue, net worth, withdrawal advice, and payout eligibility.
+**Why:** Prop desk aggregates were mixing combine capital (no cash value) with funded capital (real money), making financial metrics misleading. "Crossing the Rubicon" (combine→FXT) is now a first-class concept.
+**Propagate to:** astartes-futures (set account_phase when account crosses to FXT), astartes-equities (set account_phase for paper vs live)
+**Status:** pending
+
 ## 2026-04-08 astartes-primaris — sync-contract
 **What changed:** Created typed sync contract dataclasses (sync_contract.py)
 **Why:** Slippage bug in astartes-futures caused by raw dict returns. All engine→Primaris

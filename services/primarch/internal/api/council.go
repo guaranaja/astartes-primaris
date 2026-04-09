@@ -61,6 +61,9 @@ func (s *Server) registerCouncilRoutes() {
 	// Payout allocations
 	s.mux.HandleFunc("POST /api/v1/council/allocations/record", s.handleRecordAllocation)
 	s.mux.HandleFunc("GET /api/v1/council/allocations/history", s.handleListAllocations)
+
+	// Unified budgets (Firefly III + Monarch)
+	s.mux.HandleFunc("GET /api/v1/council/budgets", s.handleUnifiedBudgets)
 }
 
 // ─── Roadmap ────────────────────────────────────────────────
@@ -528,4 +531,19 @@ func (s *Server) handleListAllocations(w http.ResponseWriter, r *http.Request) {
 		"allocations": allocations,
 		"totals":      totals,
 	})
+}
+
+func (s *Server) handleUnifiedBudgets(w http.ResponseWriter, r *http.Request) {
+	if s.cfo == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+			"error": "CFO integration not configured",
+		})
+		return
+	}
+	budgets, err := s.cfo.GetBudgets()
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, budgets)
 }

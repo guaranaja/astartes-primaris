@@ -111,22 +111,57 @@ prometheus: ## Open Prometheus in browser
 vault: ## Open Vault UI in browser
 	@echo "Vault: http://localhost:8200 (token: dev-root-token)"
 
-# ─── Cloud Run Deployment ─────────────────────────────────
+# ─── Cloud Run Deployment (Docker — requires local Docker) ──
 
-deploy: ## Deploy all services to Cloud Run (requires GCP_PROJECT)
+deploy: ## Deploy all services to Cloud Run (requires Docker + GCP_PROJECT)
 	./infra/deploy.sh
 
-deploy-primarch: ## Deploy Primarch to Cloud Run
+deploy-primarch: ## Deploy Primarch to Cloud Run (Docker)
 	./infra/deploy.sh primarch
 
-deploy-aurum: ## Deploy Aurum to Cloud Run
+deploy-aurum: ## Deploy Aurum to Cloud Run (Docker)
 	./infra/deploy.sh aurum
 
-deploy-forge: ## Deploy Forge to Cloud Run
+deploy-forge: ## Deploy Forge to Cloud Run (Docker)
 	./infra/deploy.sh forge
 
-deploy-registry: ## Deploy Registry marketplace to Cloud Run
+deploy-registry: ## Deploy Registry marketplace to Cloud Run (Docker)
 	./infra/deploy.sh registry
+
+# ─── Cloud Build (no local Docker needed) ───────────────────
+
+GCP_PROJECT ?= $(shell gcloud config get-value project 2>/dev/null)
+GCP_REGION ?= us-central1
+
+cloud-build: ## Build & deploy all via Cloud Build (no local Docker)
+	gcloud builds submit . \
+		--config=cloudbuild.yaml \
+		--region=$(GCP_REGION) \
+		--substitutions=_REGION=$(GCP_REGION),_ENVIRONMENT=dev \
+		--quiet
+
+cloud-build-primarch: ## Build & deploy only Primarch via Cloud Build
+	gcloud builds submit services/primarch/ \
+		--tag=$(GCP_REGION)-docker.pkg.dev/$(GCP_PROJECT)/astartes-primaris/primarch:latest \
+		--region=$(GCP_REGION) \
+		--quiet && \
+	gcloud run deploy primarch-dev \
+		--image=$(GCP_REGION)-docker.pkg.dev/$(GCP_PROJECT)/astartes-primaris/primarch:latest \
+		--region=$(GCP_REGION) \
+		--quiet
+
+cloud-build-aurum: ## Build & deploy only Aurum via Cloud Build
+	gcloud builds submit services/aurum/ \
+		--tag=$(GCP_REGION)-docker.pkg.dev/$(GCP_PROJECT)/astartes-primaris/aurum:latest \
+		--region=$(GCP_REGION) \
+		--quiet && \
+	gcloud run deploy aurum-dev \
+		--image=$(GCP_REGION)-docker.pkg.dev/$(GCP_PROJECT)/astartes-primaris/aurum:latest \
+		--region=$(GCP_REGION) \
+		--quiet
+
+cloud-trigger-setup: ## Create Cloud Build trigger for auto-deploy on push to main
+	@./infra/setup-trigger.sh
 
 infra-init: ## Initialize Terraform for GCP
 	cd infra/terraform && terraform init

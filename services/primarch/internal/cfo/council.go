@@ -50,7 +50,9 @@ type UnifiedBill struct {
 	ID       string  `json:"id"`
 	Name     string  `json:"name"`
 	Amount   float64 `json:"amount"`
-	Source   string  `json:"source"`
+	Source   string  `json:"source"`   // personal, family, trading
+	Kind     string  `json:"kind"`     // "life" (real-world bills) or "system" (trading infra costs)
+	Category string  `json:"category"` // monarch category or manual category
 	Repeat   string  `json:"repeat_freq"`
 	Currency string  `json:"currency"`
 }
@@ -192,6 +194,7 @@ func (c *CouncilCFO) loadFireflyData(o *FinancialOverview, start, end time.Time)
 				Name:     b.Name,
 				Amount:   (b.AmountMin + b.AmountMax) / 2,
 				Source:   SourcePersonal,
+				Kind:     "system",
 				Repeat:   b.Repeat,
 				Currency: b.Currency,
 			})
@@ -294,6 +297,7 @@ func (c *CouncilCFO) GetBills() ([]UnifiedBill, error) {
 			Name:     b.Name,
 			Amount:   (b.AmountMin + b.AmountMax) / 2,
 			Source:   SourcePersonal,
+			Kind:     "system", // CFO Engine tracks trading infra costs
 			Repeat:   b.Repeat,
 			Currency: b.Currency,
 		}
@@ -301,38 +305,59 @@ func (c *CouncilCFO) GetBills() ([]UnifiedBill, error) {
 	return out, nil
 }
 
-// GetBudgets returns budgets from Firefly III with current month spending.
+// GetBudgets returns budgets from Firefly III and Monarch Money, merged.
 func (c *CouncilCFO) GetBudgets() ([]UnifiedBudget, error) {
-	if c.firefly == nil {
-		return nil, fmt.Errorf("cfo engine not configured")
-	}
-	budgets, err := c.firefly.ListBudgets()
-	if err != nil {
-		return nil, err
-	}
-
 	now := time.Now()
 	monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
 	monthEnd := monthStart.AddDate(0, 1, -1)
 
 	var out []UnifiedBudget
-	for _, b := range budgets {
-		if !b.Active {
-			continue
-		}
-		ub := UnifiedBudget{
-			Category: b.Name,
-			Source:   SourcePersonal,
-		}
-		// Fetch limits for current month
-		limits, err := c.firefly.GetBudgetLimits(b.ID, monthStart, monthEnd)
+
+	// Firefly III budgets (personal)
+	if c.firefly != nil {
+		budgets, err := c.firefly.ListBudgets()
 		if err != nil {
-			c.logger.Warn("budget limits failed", "budget", b.Name, "error", err)
-		} else if len(limits) > 0 {
-			ub.Budgeted = limits[0].Amount
-			ub.Spent = limits[0].Spent
+			c.logger.Warn("firefly budgets failed", "error", err)
+		} else {
+			for _, b := range budgets {
+				if !b.Active {
+					continue
+				}
+				ub := UnifiedBudget{
+					Category: b.Name,
+					Source:   SourcePersonal,
+				}
+				limits, err := c.firefly.GetBudgetLimits(b.ID, monthStart, monthEnd)
+				if err != nil {
+					c.logger.Warn("budget limits failed", "budget", b.Name, "error", err)
+				} else if len(limits) > 0 {
+					ub.Budgeted = limits[0].Amount
+					ub.Spent = limits[0].Spent
+				}
+				out = append(out, ub)
+			}
 		}
-		out = append(out, ub)
+	}
+
+	// Monarch Money budgets (family)
+	if c.monarch != nil {
+		mBudgets, err := c.monarch.GetBudgets(monthStart, monthEnd)
+		if err != nil {
+			c.logger.Warn("monarch budgets failed", "error", err)
+		} else {
+			for _, mb := range mBudgets {
+				out = append(out, UnifiedBudget{
+					Category: mb.Category,
+					Budgeted: mb.Budgeted,
+					Spent:    mb.Spent,
+					Source:   SourceFamily,
+				})
+			}
+		}
+	}
+
+	if len(out) == 0 {
+		return nil, fmt.Errorf("no budget sources configured")
 	}
 	return out, nil
 }
@@ -397,40 +422,89 @@ func (c *CouncilCFO) GetMonthlyMetrics() (*MonthlyFinanceMetrics, error) {
 }
 
 // BillingSummary holds unified billing data for the Council screen.
-// Field names match what the Strategium frontend expects.
 type BillingSummary struct {
 	TotalExpenses   float64       `json:"total_expenses"`
+	LifeExpenses    float64       `json:"life_expenses"`    // Real-world bills (rent, utils, etc.)
+	SystemExpenses  float64       `json:"system_expenses"`  // Trading infra (prop fees, data feeds)
 	TotalPaid       float64       `json:"total_paid"`
 	TotalPending    float64       `json:"total_pending"`
-	TradingCoverage float64       `json:"trading_coverage"`
-	Source          string        `json:"source"`
+	TradingCoverage float64       `json:"trading_coverage"` // Trading income / life expenses
 	Bills           []UnifiedBill `json:"bills"`
 }
 
-// GetBillingSummary builds a billing overview from Firefly III.
-func (c *CouncilCFO) GetBillingSummary(tradingIncome float64) (*BillingSummary, error) {
-	bills, err := c.GetBills()
-	if err != nil {
-		return nil, err
+// monthlyAmount normalizes a bill to its monthly cost.
+func monthlyAmount(b UnifiedBill) float64 {
+	switch b.Repeat {
+	case "weekly":
+		return b.Amount * 4.33
+	case "half-year":
+		return b.Amount / 6
+	case "yearly":
+		return b.Amount / 12
+	case "quarterly":
+		return b.Amount / 3
+	default:
+		return b.Amount
 	}
-	s := &BillingSummary{Bills: bills, Source: SourcePersonal}
-	for _, b := range bills {
-		monthly := b.Amount
-		switch b.Repeat {
-		case "weekly":
-			monthly = b.Amount * 4.33
-		case "half-year":
-			monthly = b.Amount / 6
-		case "yearly":
-			monthly = b.Amount / 12
-		case "quarterly":
-			monthly = b.Amount / 3
+}
+
+// GetBillingSummary builds a billing overview from all sources.
+func (c *CouncilCFO) GetBillingSummary(tradingIncome float64) (*BillingSummary, error) {
+	var allBills []UnifiedBill
+
+	// Firefly III bills (system costs — prop firm fees, data feeds, etc.)
+	if c.firefly != nil {
+		bills, err := c.GetBills()
+		if err != nil {
+			c.logger.Warn("firefly bills failed", "error", err)
+		} else {
+			for i := range bills {
+				bills[i].Kind = "system"
+			}
+			allBills = append(allBills, bills...)
 		}
+	}
+
+	// Monarch recurring transactions (real life bills)
+	if c.monarch != nil {
+		recurring, err := c.monarch.GetRecurringTransactions()
+		if err != nil {
+			c.logger.Warn("monarch recurring failed", "error", err)
+		} else {
+			for _, t := range recurring {
+				amt := t.Amount
+				if amt < 0 {
+					amt = -amt // expenses come as negative
+				}
+				allBills = append(allBills, UnifiedBill{
+					ID:       "mn-" + t.ID,
+					Name:     t.Merchant,
+					Amount:   amt,
+					Source:   SourceFamily,
+					Kind:     "life",
+					Category: t.Category,
+					Repeat:   "monthly",
+					Currency: "USD",
+				})
+			}
+		}
+	}
+
+	s := &BillingSummary{Bills: allBills}
+	for _, b := range allBills {
+		monthly := monthlyAmount(b)
 		s.TotalExpenses += monthly
+		if b.Kind == "life" {
+			s.LifeExpenses += monthly
+		} else {
+			s.SystemExpenses += monthly
+		}
 	}
 	s.TotalPending = s.TotalExpenses - s.TotalPaid
-	if s.TotalExpenses > 0 && tradingIncome > 0 {
-		s.TradingCoverage = tradingIncome / s.TotalExpenses
+
+	// Trading coverage = trading income vs life expenses (the real question)
+	if s.LifeExpenses > 0 && tradingIncome > 0 {
+		s.TradingCoverage = tradingIncome / s.LifeExpenses
 		if s.TradingCoverage > 1 {
 			s.TradingCoverage = 1
 		}

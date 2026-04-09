@@ -327,6 +327,52 @@ func (c *MonarchClient) GetRecurringTransactions() ([]MTransaction, error) {
 	return out, nil
 }
 
+// GetBudgets returns budget categories with spent/budgeted for a date range.
+func (c *MonarchClient) GetBudgets(start, end time.Time) ([]MBudget, error) {
+	gql := `query GetBudgetData($startDate: Date!, $endDate: Date!) {
+		budgetData(startDate: $startDate, endDate: $endDate) {
+			budgetCategories {
+				category { name }
+				budgetAmount
+				spentAmount
+				remainingAmount
+			}
+		}
+	}`
+	vars := map[string]interface{}{
+		"startDate": start.Format("2006-01-02"),
+		"endDate":   end.Format("2006-01-02"),
+	}
+	var resp struct {
+		Data struct {
+			BudgetData struct {
+				BudgetCategories []struct {
+					Category        struct{ Name string } `json:"category"`
+					BudgetAmount    float64               `json:"budgetAmount"`
+					SpentAmount     float64               `json:"spentAmount"`
+					RemainingAmount float64               `json:"remainingAmount"`
+				} `json:"budgetCategories"`
+			} `json:"budgetData"`
+		} `json:"data"`
+	}
+	if err := c.query(gql, vars, &resp); err != nil {
+		return nil, err
+	}
+	var out []MBudget
+	for _, b := range resp.Data.BudgetData.BudgetCategories {
+		if b.BudgetAmount == 0 && b.SpentAmount == 0 {
+			continue // skip unbudgeted categories with no activity
+		}
+		out = append(out, MBudget{
+			Category:  b.Category.Name,
+			Budgeted:  b.BudgetAmount,
+			Spent:     b.SpentAmount,
+			Available: b.RemainingAmount,
+		})
+	}
+	return out, nil
+}
+
 // Ping tests connectivity to Monarch.
 func (c *MonarchClient) Ping() error {
 	gql := `query { subscription { id } }`

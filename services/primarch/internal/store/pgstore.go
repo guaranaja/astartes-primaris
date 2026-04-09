@@ -956,6 +956,10 @@ func (s *PGStore) GetWithdrawalAdvice() []domain.WithdrawalAdvice {
 		if a.Status != "active" || a.Type != domain.AccountProp {
 			continue
 		}
+		// Only funded accounts (Rubicon crossed) are withdrawal-eligible
+		if a.AccountPhase != "fxt" && a.AccountPhase != "live" {
+			continue
+		}
 		profit := a.CurrentBalance - a.InitialBalance
 		if profit <= 0 {
 			continue
@@ -1022,6 +1026,18 @@ func (s *PGStore) GetBusinessMetrics() domain.BusinessMetrics {
 		}
 		if a.Type == domain.AccountPersonal {
 			m.PersonalAccountValue += a.CurrentBalance
+		}
+		// Cash-value split: funded (fxt/live) vs sim (combine/paper)
+		isFunded := (a.AccountPhase == "fxt" || a.AccountPhase == "live") && a.Status == "active"
+		if isFunded {
+			m.FundedPnL += a.TotalPnL
+			m.FundedCapital += a.CurrentBalance
+			m.AccountsFunded++
+		} else if a.Status != "blown" && a.Status != "graduated" && a.Status != "closed" {
+			m.SimPnL += a.TotalPnL
+			if a.AccountPhase == "combine" || a.AccountPhase == "" {
+				m.AccountsInCombine++
+			}
 		}
 	}
 	m.MonthlyPnL = budget.TradingIncome

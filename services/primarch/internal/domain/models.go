@@ -565,6 +565,54 @@ type Roadmap struct {
 	Phases       []PhaseConfig `json:"phases"`
 	StartedAt    time.Time     `json:"started_at"`
 	UpdatedAt    time.Time     `json:"updated_at"`
+	// Per-strategy progression tracks
+	StrategyTracks []StrategyTrack `json:"strategy_tracks,omitempty"`
+}
+
+// StrategyTrack is an independent progression track for a strategy type.
+// Each strategy type (prop futures, equities, options) advances on its own
+// metrics and has its own Rubicon moment.
+type StrategyTrack struct {
+	ID           string       `json:"id"`            // e.g. "prop-futures", "equities-momentum"
+	Name         string       `json:"name"`           // e.g. "Prop Futures"
+	StrategyType string       `json:"strategy_type"`  // "prop_futures", "equities", "options"
+	CurrentRank  StrategyRank `json:"current_rank"`
+	RubiconDate  string       `json:"rubicon_date,omitempty"` // When they crossed — empty if not yet
+	Metrics      TrackMetrics `json:"metrics"`
+	UpdatedAt    time.Time    `json:"updated_at"`
+}
+
+// StrategyRank is the progression rank within a strategy track.
+type StrategyRank string
+
+const (
+	// Pre-Rubicon ranks (no cash value)
+	RankInitiate StrategyRank = "initiate" // Paper/practice only
+	RankNeophyte StrategyRank = "neophyte" // In combine/evaluation
+
+	// THE RUBICON — crossing from neophyte to astartes is the defining moment
+	RankAstartes StrategyRank = "astartes" // Funded/FXT — crossed the Rubicon
+
+	// Post-Rubicon ranks (earned through funded performance)
+	RankVeteran      StrategyRank = "veteran"       // Consistent funded profitability
+	RankCaptain      StrategyRank = "captain"        // Multiple funded accounts, scaling
+	RankChapterMaster StrategyRank = "chapter_master" // Full autonomy, no prop needed
+)
+
+// TrackMetrics holds the success criteria for a strategy track.
+// Different strategy types weight these differently.
+type TrackMetrics struct {
+	TotalTradingDays   int     `json:"total_trading_days"`
+	ProfitableDays     int     `json:"profitable_days"`
+	WinRate            float64 `json:"win_rate"`
+	AvgDailyPnL        float64 `json:"avg_daily_pnl"`
+	ConsistencyPct     float64 `json:"consistency_pct"`
+	CombinesPassed     int     `json:"combines_passed"`
+	AccountsBlown      int     `json:"accounts_blown"`
+	AccountsFunded     int     `json:"accounts_funded"`
+	FundedPnL          float64 `json:"funded_pnl"`
+	TotalPayouts       float64 `json:"total_payouts"`
+	ConsecutivePayouts int     `json:"consecutive_payouts"`
 }
 
 // ─── Accounts & Finances ────────────────────────────────────
@@ -838,8 +886,13 @@ type BillingSummary struct {
 type BusinessMetrics struct {
 	LifetimePnL          float64 `json:"lifetime_pnl"`
 	LifetimePayouts      float64 `json:"lifetime_payouts"`
+	FundedPnL            float64 `json:"funded_pnl"`          // P&L from FXT/live accounts only (real cash)
+	SimPnL               float64 `json:"sim_pnl"`             // P&L from combine/paper (no cash value)
+	FundedCapital        float64 `json:"funded_capital"`       // Current balance of funded accounts
 	AccountsBlown        int     `json:"accounts_blown"`
 	AccountsGraduated    int     `json:"accounts_graduated"`
+	AccountsFunded       int     `json:"accounts_funded"`      // Currently in FXT or live
+	AccountsInCombine    int     `json:"accounts_in_combine"`
 	TotalTradingDays     int     `json:"total_trading_days"`
 	ProfitableDays       int     `json:"profitable_days"`
 	MonthlyPnL           float64 `json:"monthly_pnl"`

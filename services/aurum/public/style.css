@@ -859,9 +859,14 @@ select.input option { background: var(--bg-1); }
 /* Phase Tracker */
 .phase-tracker {
   display: flex;
+  flex-direction: column;
   gap: 4px;
   overflow-x: auto;
   padding-bottom: 4px;
+}
+/* Legacy horizontal layout when using phase cards */
+.phase-tracker:has(.phase-card) {
+  flex-direction: row;
 }
 
 .phase-card {
@@ -914,6 +919,109 @@ select.input option { background: var(--bg-1); }
   font-size: 14px;
 }
 
+/* ─── Strategy Tracks ──────────────────────────────────── */
+.strategy-track {
+  padding: 14px 16px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  margin-bottom: 8px;
+}
+.strategy-track.rubicon-crossed {
+  border-color: var(--green-dim);
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.06), transparent);
+}
+.track-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+.track-name { font-weight: 700; font-size: 14px; }
+.track-rank {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1.2px;
+}
+.track-progression {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  margin-bottom: 10px;
+}
+.track-rank-pip {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+}
+.pip-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--border);
+  border: 2px solid var(--bg-2);
+}
+.track-rank-pip.completed .pip-dot { background: var(--green); }
+.track-rank-pip.active .pip-dot {
+  background: var(--accent);
+  box-shadow: 0 0 8px rgba(59, 130, 246, 0.4);
+}
+.track-rank-pip.rubicon-pip .pip-dot {
+  width: 14px;
+  height: 14px;
+}
+.track-rank-pip.rubicon-pip.completed .pip-dot {
+  background: var(--gold);
+  box-shadow: 0 0 12px rgba(201, 168, 76, 0.5);
+}
+.track-rank-pip.rubicon-pip.active .pip-dot {
+  background: var(--gold);
+  box-shadow: 0 0 12px rgba(201, 168, 76, 0.4);
+}
+.pip-label {
+  font-size: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--text-3);
+  white-space: nowrap;
+}
+.track-rank-pip.active .pip-label { color: var(--text-0); }
+.track-rank-pip.rubicon-pip .pip-label {
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--gold);
+  letter-spacing: 1px;
+}
+.pip-line {
+  flex: 1;
+  height: 2px;
+  background: var(--border);
+  min-width: 8px;
+  margin-top: -14px;
+}
+.rubicon-banner {
+  text-align: center;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  color: var(--gold);
+  padding: 6px 12px;
+  background: linear-gradient(90deg, transparent, rgba(201, 168, 76, 0.1), transparent);
+  border-radius: var(--radius);
+  margin-bottom: 8px;
+}
+.track-metrics {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--text-2);
+}
+
 /* Account Cards */
 .account-list { display: flex; flex-direction: column; gap: 8px; }
 
@@ -937,6 +1045,25 @@ select.input option { background: var(--bg-1); }
 .account-type-badge.prop { background: rgba(251, 191, 36, 0.15); color: var(--amber); border: 1px solid rgba(251, 191, 36, 0.3); }
 .account-type-badge.personal { background: rgba(96, 165, 250, 0.15); color: var(--blue); border: 1px solid rgba(96, 165, 250, 0.3); }
 .account-type-badge.paper { background: rgba(80, 80, 104, 0.3); color: var(--text-2); border: 1px solid var(--border); }
+
+.account-group { margin-bottom: 12px; }
+.account-group-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  margin-bottom: 6px;
+  background: rgba(255,255,255,0.02);
+  border-radius: var(--radius);
+}
+
+.budget-group { margin-bottom: 12px; }
+.budget-row {
+  padding: 6px 10px;
+  background: var(--bg-2);
+  border-radius: var(--radius);
+  margin-bottom: 4px;
+}
 
 .account-info { flex: 1; min-width: 0; }
 .account-name { font-weight: 600; font-size: 13px; }
@@ -1290,6 +1417,70 @@ select.input option { background: var(--bg-1); }
   background: linear-gradient(to bottom, transparent, var(--gold-dim), transparent);
 }
 
+.prop-banner-grid {
+  display: flex;
+  gap: var(--gap);
+  margin-bottom: var(--gap);
+}
+.prop-banner-segment {
+  flex: 1;
+  padding: 12px 16px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+}
+.prop-banner-segment.funded {
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.08), rgba(16, 185, 129, 0.02));
+  border-color: var(--green);
+}
+.prop-banner-segment.evaluation {
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.08), rgba(59, 130, 246, 0.02));
+  border-color: var(--accent);
+}
+.prop-banner-segment.inactive {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.03), transparent);
+  border-color: var(--border);
+  opacity: 0.7;
+}
+.prop-segment-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.prop-segment-title {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1.2px;
+  font-weight: 700;
+}
+.prop-segment-count {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-3);
+}
+.prop-segment-stats {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.prop-segment-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.prop-segment-stat .stat-label {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: var(--text-3);
+}
+.prop-segment-stat .stat-value {
+  font-family: var(--font-mono);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-0);
+}
+
 /* ─── Marine Schedule Info ──────────────────────────────── */
 
 .marine-schedule {
@@ -1450,6 +1641,13 @@ select.input option { background: var(--bg-1); }
   border-radius: var(--radius-lg);
   transition: border-color 0.2s;
 }
+.rubicon-row {
+  background: linear-gradient(90deg, rgba(201, 168, 76, 0.08), transparent);
+  border-radius: var(--radius);
+  padding: 4px 8px !important;
+  margin: 2px -8px;
+}
+
 .prop-account-card.active { border-left: 3px solid var(--green); }
 .prop-account-card.blown { border-left: 3px solid var(--red); opacity: 0.6; }
 .prop-account-card.closed { border-left: 3px solid var(--text-3); opacity: 0.6; }
@@ -1552,6 +1750,7 @@ select.input option { background: var(--bg-1); }
   .perf-stats { grid-column: 1; grid-row: 2; }
   .perf-journal { grid-column: 1; grid-row: 3; }
   .summary-banner { flex-wrap: wrap; gap: 12px; }
+  .prop-banner-grid { flex-direction: column; }
 }
 
 /* ─── Prop Desk Progress Bars ───────────────────────────── */
