@@ -159,9 +159,7 @@ func (c *MonarchClient) ListAccounts() ([]MAccount, error) {
 			id
 			displayName
 			type { name }
-			subtype { name }
 			currentBalance
-			availableBalance
 			institution { name }
 			isHidden
 			updatedAt
@@ -170,15 +168,13 @@ func (c *MonarchClient) ListAccounts() ([]MAccount, error) {
 	var resp struct {
 		Data struct {
 			Accounts []struct {
-				ID               string  `json:"id"`
-				DisplayName      string  `json:"displayName"`
-				Type             struct{ Name string } `json:"type"`
-				Subtype          struct{ Name string } `json:"subtype"`
-				CurrentBalance   float64 `json:"currentBalance"`
-				AvailableBalance float64 `json:"availableBalance"`
-				Institution      struct{ Name string } `json:"institution"`
-				IsHidden         bool    `json:"isHidden"`
-				UpdatedAt        string  `json:"updatedAt"`
+				ID             string  `json:"id"`
+				DisplayName    string  `json:"displayName"`
+				Type           struct{ Name string } `json:"type"`
+				CurrentBalance float64 `json:"currentBalance"`
+				Institution    struct{ Name string } `json:"institution"`
+				IsHidden       bool    `json:"isHidden"`
+				UpdatedAt      string  `json:"updatedAt"`
 			} `json:"accounts"`
 		} `json:"data"`
 	}
@@ -188,15 +184,13 @@ func (c *MonarchClient) ListAccounts() ([]MAccount, error) {
 	out := make([]MAccount, len(resp.Data.Accounts))
 	for i, a := range resp.Data.Accounts {
 		out[i] = MAccount{
-			ID:               a.ID,
-			DisplayName:      a.DisplayName,
-			Type:             a.Type.Name,
-			Subtype:          a.Subtype.Name,
-			Balance:          a.CurrentBalance,
-			AvailableBalance: a.AvailableBalance,
-			Institution:      a.Institution.Name,
-			IsHidden:         a.IsHidden,
-			UpdatedAt:        a.UpdatedAt,
+			ID:          a.ID,
+			DisplayName: a.DisplayName,
+			Type:        a.Type.Name,
+			Balance:     a.CurrentBalance,
+			Institution: a.Institution.Name,
+			IsHidden:    a.IsHidden,
+			UpdatedAt:   a.UpdatedAt,
 		}
 	}
 	return out, nil
@@ -261,12 +255,15 @@ func (c *MonarchClient) ListTransactions(start, end time.Time) ([]MTransaction, 
 }
 
 // GetCashFlow returns income/expenses/savings for a date range.
+// Uses the aggregates query (Monarch v2 API — cashFlow query was removed).
 func (c *MonarchClient) GetCashFlow(start, end time.Time) (*MCashFlow, error) {
 	gql := `query GetCashFlow($startDate: Date!, $endDate: Date!) {
-		cashFlow(startDate: $startDate, endDate: $endDate) {
-			totalIncome
-			totalExpenses
-			savings
+		aggregates(filters: { startDate: $startDate, endDate: $endDate }) {
+			summary {
+				sumIncome
+				sumExpense
+				savings
+			}
 		}
 	}`
 	vars := map[string]interface{}{
@@ -275,55 +272,80 @@ func (c *MonarchClient) GetCashFlow(start, end time.Time) (*MCashFlow, error) {
 	}
 	var resp struct {
 		Data struct {
-			CashFlow struct {
-				TotalIncome   float64 `json:"totalIncome"`
-				TotalExpenses float64 `json:"totalExpenses"`
-				Savings       float64 `json:"savings"`
-			} `json:"cashFlow"`
+			Aggregates []struct {
+				Summary struct {
+					SumIncome  float64 `json:"sumIncome"`
+					SumExpense float64 `json:"sumExpense"`
+					Savings    float64 `json:"savings"`
+				} `json:"summary"`
+			} `json:"aggregates"`
 		} `json:"data"`
 	}
 	if err := c.query(gql, vars, &resp); err != nil {
 		return nil, err
 	}
-	return &MCashFlow{
-		Income:   resp.Data.CashFlow.TotalIncome,
-		Expenses: resp.Data.CashFlow.TotalExpenses,
-		Savings:  resp.Data.CashFlow.Savings,
-	}, nil
+	cf := &MCashFlow{}
+	if len(resp.Data.Aggregates) > 0 {
+		s := resp.Data.Aggregates[0].Summary
+		cf.Income = s.SumIncome
+		cf.Expenses = -s.SumExpense // sumExpense is negative, normalize to positive
+		cf.Savings = s.Savings
+	}
+	return cf, nil
 }
 
-// GetRecurringTransactions returns upcoming recurring bills/income.
+// GetRecurringTransactions returns recurring bills/income.
+// Uses allTransactions with isRecurring filter (Monarch v2 API).
 func (c *MonarchClient) GetRecurringTransactions() ([]MTransaction, error) {
-	gql := `query {
-		recurringTransactions {
-			id
-			title
-			amount
-			merchant { name }
-			category { name }
-			account { displayName }
-			isRecurring
+	// Pull last 60 days of recurring to capture monthly bills
+	end := time.Now()
+	start := end.AddDate(0, -2, 0)
+	gql := `query GetRecurring($startDate: Date!, $endDate: Date!) {
+		allTransactions(filters: { startDate: $startDate, endDate: $endDate, isRecurring: true }) {
+			results {
+				id
+				date
+				amount
+				merchant { name }
+				category { name }
+				account { displayName }
+				isRecurring
+			}
 		}
 	}`
+	vars := map[string]interface{}{
+		"startDate": start.Format("2006-01-02"),
+		"endDate":   end.Format("2006-01-02"),
+	}
 	var resp struct {
 		Data struct {
-			RecurringTransactions []struct {
-				ID       string  `json:"id"`
-				Title    string  `json:"title"`
-				Amount   float64 `json:"amount"`
-				Merchant struct{ Name string } `json:"merchant"`
-				Category struct{ Name string } `json:"category"`
-				Account  struct{ DisplayName string } `json:"account"`
-			} `json:"recurringTransactions"`
+			AllTransactions struct {
+				Results []struct {
+					ID       string  `json:"id"`
+					Date     string  `json:"date"`
+					Amount   float64 `json:"amount"`
+					Merchant struct{ Name string } `json:"merchant"`
+					Category struct{ Name string } `json:"category"`
+					Account  struct{ DisplayName string } `json:"account"`
+				} `json:"results"`
+			} `json:"allTransactions"`
 		} `json:"data"`
 	}
-	if err := c.query(gql, nil, &resp); err != nil {
+	if err := c.query(gql, vars, &resp); err != nil {
 		return nil, err
 	}
+	// Deduplicate by merchant name — we want unique recurring bills, not every instance
+	seen := map[string]bool{}
 	var out []MTransaction
-	for _, t := range resp.Data.RecurringTransactions {
+	for _, t := range resp.Data.AllTransactions.Results {
+		key := t.Merchant.Name + "|" + t.Category.Name
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
 		out = append(out, MTransaction{
 			ID:          t.ID,
+			Date:        t.Date,
 			Merchant:    t.Merchant.Name,
 			Amount:      t.Amount,
 			Category:    t.Category.Name,
@@ -334,47 +356,29 @@ func (c *MonarchClient) GetRecurringTransactions() ([]MTransaction, error) {
 	return out, nil
 }
 
-// GetBudgets returns budget categories with spent/budgeted for a date range.
+// GetBudgets returns spending by category for a date range.
+// Monarch v2 removed the budgetData query, so we derive from transaction aggregates.
 func (c *MonarchClient) GetBudgets(start, end time.Time) ([]MBudget, error) {
-	gql := `query GetBudgetData($startDate: Date!, $endDate: Date!) {
-		budgetData(startDate: $startDate, endDate: $endDate) {
-			budgetCategories {
-				category { name }
-				budgetAmount
-				spentAmount
-				remainingAmount
-			}
+	txns, err := c.ListTransactions(start, end)
+	if err != nil {
+		return nil, fmt.Errorf("monarch budgets (via transactions): %w", err)
+	}
+	// Group spending by category
+	cats := map[string]float64{}
+	for _, t := range txns {
+		if t.Amount >= 0 {
+			continue // skip income
 		}
-	}`
-	vars := map[string]interface{}{
-		"startDate": start.Format("2006-01-02"),
-		"endDate":   end.Format("2006-01-02"),
-	}
-	var resp struct {
-		Data struct {
-			BudgetData struct {
-				BudgetCategories []struct {
-					Category        struct{ Name string } `json:"category"`
-					BudgetAmount    float64               `json:"budgetAmount"`
-					SpentAmount     float64               `json:"spentAmount"`
-					RemainingAmount float64               `json:"remainingAmount"`
-				} `json:"budgetCategories"`
-			} `json:"budgetData"`
-		} `json:"data"`
-	}
-	if err := c.query(gql, vars, &resp); err != nil {
-		return nil, err
+		cats[t.Category] += -t.Amount // normalize to positive
 	}
 	var out []MBudget
-	for _, b := range resp.Data.BudgetData.BudgetCategories {
-		if b.BudgetAmount == 0 && b.SpentAmount == 0 {
-			continue // skip unbudgeted categories with no activity
+	for cat, spent := range cats {
+		if cat == "" || cat == "Transfer" {
+			continue
 		}
 		out = append(out, MBudget{
-			Category:  b.Category.Name,
-			Budgeted:  b.BudgetAmount,
-			Spent:     b.SpentAmount,
-			Available: b.RemainingAmount,
+			Category: cat,
+			Spent:    spent,
 		})
 	}
 	return out, nil
