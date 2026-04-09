@@ -9,7 +9,10 @@ import (
 	"time"
 )
 
-const monarchGraphQLURL = "https://api.monarchmoney.com/graphql"
+const (
+	monarchGraphQLURL = "https://api.monarch.com/graphql"
+	monarchLoginURL   = "https://api.monarch.com/auth/login/"
+)
 
 // MonarchClient talks to the Monarch Money GraphQL API.
 type MonarchClient struct {
@@ -27,47 +30,42 @@ func NewMonarchClient(sessionToken string) *MonarchClient {
 	}
 }
 
-// Login authenticates with email/password and stores the session token.
+// Login authenticates with email/password via Monarch's REST login endpoint.
 func Login(email, password string) (*MonarchClient, error) {
 	payload := map[string]interface{}{
-		"query": `mutation Login($email: String!, $password: String!) {
-			loginUser(input: {email: $email, password: $password}) {
-				token
-				errors { message }
-			}
-		}`,
-		"variables": map[string]string{
-			"email":    email,
-			"password": password,
-		},
+		"username":       email,
+		"password":       password,
+		"supports_mfa":   true,
+		"trusted_device": false,
 	}
 	b, _ := json.Marshal(payload)
-	resp, err := http.Post(monarchGraphQLURL, "application/json", bytes.NewReader(b))
+	resp, err := http.Post(monarchLoginURL, "application/json", bytes.NewReader(b))
 	if err != nil {
 		return nil, fmt.Errorf("monarch login: %w", err)
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode == 403 {
+		return nil, fmt.Errorf("monarch login: MFA required or blocked (403)")
+	}
+	if resp.StatusCode == 429 {
+		return nil, fmt.Errorf("monarch login: rate limited (429)")
+	}
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("monarch login: HTTP %d: %s", resp.StatusCode, string(body))
+	}
+
 	var result struct {
-		Data struct {
-			LoginUser struct {
-				Token  string `json:"token"`
-				Errors []struct {
-					Message string `json:"message"`
-				} `json:"errors"`
-			} `json:"loginUser"`
-		} `json:"data"`
+		Token string `json:"token"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, fmt.Errorf("monarch login decode: %w", err)
 	}
-	if len(result.Data.LoginUser.Errors) > 0 {
-		return nil, fmt.Errorf("monarch login: %s", result.Data.LoginUser.Errors[0].Message)
-	}
-	if result.Data.LoginUser.Token == "" {
+	if result.Token == "" {
 		return nil, fmt.Errorf("monarch login: no token returned")
 	}
-	return NewMonarchClient(result.Data.LoginUser.Token), nil
+	return NewMonarchClient(result.Token), nil
 }
 
 // Token returns the session token for persistence.

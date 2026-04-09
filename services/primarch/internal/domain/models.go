@@ -329,39 +329,21 @@ type AccountSnapshot struct {
 	ProfitSplit     float64  `json:"profit_split,omitempty"`     // e.g. 0.90
 	Status          string   `json:"status,omitempty"`           // "active", "blown", "closed"
 	Instruments     []string `json:"instruments,omitempty"`
-	MaxLossLimit    float64  `json:"max_loss_limit,omitempty"`
-	ProfitTarget    float64  `json:"profit_target,omitempty"`
-	DailyLossLimit  float64  `json:"daily_loss_limit,omitempty"`
-	TotalPayouts    float64  `json:"total_payouts,omitempty"`
-	PayoutCount     int      `json:"payout_count,omitempty"`
-	WinningDays     int      `json:"winning_days,omitempty"`
-	TotalTradingDays int     `json:"total_trading_days,omitempty"`
-	// Enhanced fields (from Fortress Primus v2)
-	AccountPhase       string  `json:"account_phase,omitempty"`       // "combine", "fxt", "live", "blown"
+	MaxLossLimit       float64 `json:"max_loss_limit,omitempty"`
+	ProfitTarget       float64 `json:"profit_target,omitempty"`
+	DailyLossLimit     float64 `json:"daily_loss_limit,omitempty"`
+	TotalPayouts       float64 `json:"total_payouts,omitempty"`
+	PayoutCount        int     `json:"payout_count,omitempty"`
+	WinningDays        int     `json:"winning_days,omitempty"`
+	TotalTradingDays   int     `json:"total_trading_days,omitempty"`
 	TrailingDD         float64 `json:"trailing_dd,omitempty"`
-	SessionHighEquity  float64 `json:"session_high_equity,omitempty"`
-	MLLHeadroom        float64 `json:"mll_headroom,omitempty"`
-	MLLUsagePct        float64 `json:"mll_usage_pct,omitempty"`
+	MllHeadroom        float64 `json:"mll_headroom,omitempty"`
+	MllUsagePct        float64 `json:"mll_usage_pct,omitempty"`
 	CombineProgressPct float64 `json:"combine_progress_pct,omitempty"`
-	WithdrawalAvail    float64 `json:"withdrawal_available,omitempty"`
-	IsLockedOut        bool    `json:"is_locked_out,omitempty"`
-	LockoutReason      string  `json:"lockout_reason,omitempty"`
-	BrokerBalance      float64 `json:"broker_balance,omitempty"`
-	BrokerCanTrade     *bool   `json:"broker_can_trade,omitempty"`
-	DailyTrades        int     `json:"daily_trades,omitempty"`
-	DailyWins          int     `json:"daily_wins,omitempty"`
-	DailyLosses        int     `json:"daily_losses,omitempty"`
-	// Combine lifecycle
-	CombineNumber    int    `json:"combine_number,omitempty"`
-	CombineStartDate string `json:"combine_start_date,omitempty"` // ISO date
-	CombinePassDate  string `json:"combine_pass_date,omitempty"`  // ISO date, null if active
-	FundedDate       string `json:"funded_date,omitempty"`        // ISO date
-	BlownDate        string `json:"blown_date,omitempty"`         // ISO date, null if active
-	// Performance metrics
-	BestDayPnL     float64 `json:"best_day_pnl,omitempty"`
-	ConsistencyPct float64 `json:"consistency_pct,omitempty"` // best day as % of total (TopstepX < 50%)
-	AvgDailyPnL    float64 `json:"avg_daily_pnl,omitempty"`
-	OverallWinRate float64 `json:"overall_win_rate,omitempty"`
+	AccountPhase       string  `json:"account_phase,omitempty"`
+	BestDayPnL         float64 `json:"best_day_pnl,omitempty"`
+	CombineNumber      int     `json:"combine_number,omitempty"`
+	CombineStartDate   string  `json:"combine_start_date,omitempty"`
 }
 
 // MarketBar represents an OHLCV bar.
@@ -595,29 +577,19 @@ type TradingAccount struct {
 	Instruments    []string    `json:"instruments"`
 	CreatedAt      time.Time   `json:"created_at"`
 	UpdatedAt      time.Time   `json:"updated_at"`
-	// Risk & drawdown (from engine snapshot)
+	// Extended fields from engine account snapshots
 	MaxLossLimit       float64 `json:"max_loss_limit,omitempty"`
 	ProfitTarget       float64 `json:"profit_target,omitempty"`
-	DailyPnL           float64 `json:"daily_pnl,omitempty"`
 	TrailingDD         float64 `json:"trailing_dd,omitempty"`
-	MLLHeadroom        float64 `json:"mll_headroom,omitempty"`
-	MLLUsagePct        float64 `json:"mll_usage_pct,omitempty"`
+	MllHeadroom        float64 `json:"mll_headroom,omitempty"`
+	MllUsagePct        float64 `json:"mll_usage_pct,omitempty"`
 	CombineProgressPct float64 `json:"combine_progress_pct,omitempty"`
-	WithdrawalAvail    float64 `json:"withdrawal_available,omitempty"`
-	AccountPhase       string  `json:"account_phase,omitempty"` // "combine", "fxt", "live", "blown"
-	// Combine lifecycle
-	CombineNumber    int    `json:"combine_number,omitempty"`
-	CombineStartDate string `json:"combine_start_date,omitempty"`
-	CombinePassDate  string `json:"combine_pass_date,omitempty"`
-	FundedDate       string `json:"funded_date,omitempty"`
-	BlownDate        string `json:"blown_date,omitempty"`
-	// Performance metrics
-	BestDayPnL       float64 `json:"best_day_pnl,omitempty"`
-	ConsistencyPct   float64 `json:"consistency_pct,omitempty"`
-	AvgDailyPnL      float64 `json:"avg_daily_pnl,omitempty"`
-	OverallWinRate   float64 `json:"overall_win_rate,omitempty"`
-	WinningDays      int     `json:"winning_days,omitempty"`
-	TotalTradingDays int     `json:"total_trading_days,omitempty"`
+	AccountPhase       string  `json:"account_phase,omitempty"`     // "combine", "practice", "fxt", "live", "blown"
+	WinningDays        int     `json:"winning_days,omitempty"`
+	TotalTradingDays   int     `json:"total_trading_days,omitempty"`
+	BestDayPnL         float64 `json:"best_day_pnl,omitempty"`
+	CombineNumber      int     `json:"combine_number,omitempty"`
+	CombineStartDate   string  `json:"combine_start_date,omitempty"`
 }
 
 // Payout records a withdrawal from a trading account.
@@ -631,16 +603,6 @@ type Payout struct {
 	RequestedAt time.Time  `json:"requested_at"`
 	CompletedAt *time.Time `json:"completed_at,omitempty"`
 	Note        string     `json:"note,omitempty"`
-}
-
-// PayoutAllocation records where a payout was allocated (ledger entry, no money movement).
-type PayoutAllocation struct {
-	ID        string    `json:"id"`
-	PayoutID  string    `json:"payout_id,omitempty"` // optional link to Payout
-	Category  string    `json:"category"`            // "family", "bills", "savings", "trading_capital", "taxes"
-	Amount    float64   `json:"amount"`
-	Note      string    `json:"note,omitempty"`
-	CreatedAt time.Time `json:"created_at"`
 }
 
 // ─── Budget Integration ─────────────────────────────────────
@@ -780,44 +742,6 @@ type Payment struct {
 	PaidAt    time.Time `json:"paid_at"`
 	Method    string    `json:"method"` // "bank", "trading_income", "manual"
 	Note      string    `json:"note,omitempty"`
-}
-
-// ═══════════════════════════════════════════════════════════
-// WHEEL CYCLE MANAGER — Options Wheel Strategy Tracking
-// ═══════════════════════════════════════════════════════════
-
-// WheelCycle tracks one full iteration of the wheel strategy on an underlying.
-type WheelCycle struct {
-	ID                    string            `json:"id"`
-	Underlying            string            `json:"underlying"`
-	Status                string            `json:"status"` // selling_puts, assigned, selling_calls, called_away, closed
-	Mode                  string            `json:"mode"`   // manual, automated
-	MarineID              string            `json:"marine_id,omitempty"`
-	Broker                string            `json:"broker,omitempty"`
-	StartedAt             time.Time         `json:"started_at"`
-	ClosedAt              *time.Time        `json:"closed_at,omitempty"`
-	TotalPremiumCollected float64           `json:"total_premium_collected"`
-	CostBasis             float64           `json:"cost_basis"`
-	SharesHeld            int               `json:"shares_held"`
-	Metadata              map[string]string `json:"metadata,omitempty"`
-}
-
-// WheelLeg represents a single option trade within a wheel cycle.
-type WheelLeg struct {
-	ID         string     `json:"id"`
-	CycleID    string     `json:"cycle_id"`
-	LegType    string     `json:"leg_type"` // csp, covered_call, assignment, called_away, roll, close
-	Symbol     string     `json:"symbol"`
-	Strike     float64    `json:"strike"`
-	Expiration string     `json:"expiration,omitempty"` // YYYY-MM-DD
-	OptionType string     `json:"option_type,omitempty"` // P, C
-	Quantity   int        `json:"quantity"`
-	Premium    float64    `json:"premium"`
-	FillPrice  float64    `json:"fill_price"`
-	OpenedAt   time.Time  `json:"opened_at"`
-	ClosedAt   *time.Time `json:"closed_at,omitempty"`
-	Status     string     `json:"status"` // open, expired, assigned, exercised, closed, rolled
-	Notes      string     `json:"notes,omitempty"`
 }
 
 // BillingSummary aggregates expense and payment data for a period.

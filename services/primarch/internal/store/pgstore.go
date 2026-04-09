@@ -777,13 +777,17 @@ func (s *PGStore) CreateAccount(a *domain.TradingAccount) error {
 	if a.ProfitSplit == 0 && a.Type == domain.AccountPersonal {
 		a.ProfitSplit = 1.0
 	}
+	instrJSON, _ := json.Marshal(a.Instruments)
+	if len(a.Instruments) == 0 {
+		instrJSON = []byte("[]")
+	}
 	_, err := s.db.Exec(`INSERT INTO trading_accounts (id, name, broker, type, account_number, initial_balance, current_balance, total_pnl, total_payouts, payout_count, profit_split, status, instruments,
 		max_loss_limit, profit_target, daily_pnl, trailing_dd, mll_headroom, mll_usage_pct, combine_progress_pct, withdrawal_available, account_phase,
 		combine_number, combine_start_date, combine_pass_date, funded_date, blown_date,
 		best_day_pnl, consistency_pct, avg_daily_pnl, overall_win_rate, winning_days, total_trading_days,
 		created_at, updated_at)
 		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35)`,
-		a.ID, a.Name, a.Broker, a.Type, a.AccountNumber, a.InitialBalance, a.CurrentBalance, a.TotalPnL, a.TotalPayouts, a.PayoutCount, a.ProfitSplit, a.Status, "[]",
+		a.ID, a.Name, a.Broker, a.Type, a.AccountNumber, a.InitialBalance, a.CurrentBalance, a.TotalPnL, a.TotalPayouts, a.PayoutCount, a.ProfitSplit, a.Status, string(instrJSON),
 		a.MaxLossLimit, a.ProfitTarget, a.DailyPnL, a.TrailingDD, a.MLLHeadroom, a.MLLUsagePct, a.CombineProgressPct, a.WithdrawalAvail, a.AccountPhase,
 		a.CombineNumber, a.CombineStartDate, a.CombinePassDate, a.FundedDate, a.BlownDate,
 		a.BestDayPnL, a.ConsistencyPct, a.AvgDailyPnL, a.OverallWinRate, a.WinningDays, a.TotalTradingDays,
@@ -793,12 +797,16 @@ func (s *PGStore) CreateAccount(a *domain.TradingAccount) error {
 
 func (s *PGStore) UpdateAccount(a *domain.TradingAccount) error {
 	a.UpdatedAt = time.Now()
-	_, err := s.db.Exec(`UPDATE trading_accounts SET name=$2, broker=$3, type=$4, current_balance=$5, total_pnl=$6, total_payouts=$7, payout_count=$8, profit_split=$9, status=$10,
-		max_loss_limit=$11, profit_target=$12, daily_pnl=$13, trailing_dd=$14, mll_headroom=$15, mll_usage_pct=$16, combine_progress_pct=$17, withdrawal_available=$18, account_phase=$19,
-		combine_number=$20, combine_start_date=$21, combine_pass_date=$22, funded_date=$23, blown_date=$24,
-		best_day_pnl=$25, consistency_pct=$26, avg_daily_pnl=$27, overall_win_rate=$28, winning_days=$29, total_trading_days=$30,
-		updated_at=$31 WHERE id=$1`,
-		a.ID, a.Name, a.Broker, a.Type, a.CurrentBalance, a.TotalPnL, a.TotalPayouts, a.PayoutCount, a.ProfitSplit, a.Status,
+	instrJSON, _ := json.Marshal(a.Instruments)
+	if len(a.Instruments) == 0 {
+		instrJSON = []byte("[]")
+	}
+	_, err := s.db.Exec(`UPDATE trading_accounts SET name=$2, broker=$3, type=$4, current_balance=$5, total_pnl=$6, total_payouts=$7, payout_count=$8, profit_split=$9, status=$10, instruments=$11,
+		max_loss_limit=$12, profit_target=$13, daily_pnl=$14, trailing_dd=$15, mll_headroom=$16, mll_usage_pct=$17, combine_progress_pct=$18, withdrawal_available=$19, account_phase=$20,
+		combine_number=$21, combine_start_date=$22, combine_pass_date=$23, funded_date=$24, blown_date=$25,
+		best_day_pnl=$26, consistency_pct=$27, avg_daily_pnl=$28, overall_win_rate=$29, winning_days=$30, total_trading_days=$31,
+		updated_at=$32 WHERE id=$1`,
+		a.ID, a.Name, a.Broker, a.Type, a.CurrentBalance, a.TotalPnL, a.TotalPayouts, a.PayoutCount, a.ProfitSplit, a.Status, string(instrJSON),
 		a.MaxLossLimit, a.ProfitTarget, a.DailyPnL, a.TrailingDD, a.MLLHeadroom, a.MLLUsagePct, a.CombineProgressPct, a.WithdrawalAvail, a.AccountPhase,
 		a.CombineNumber, a.CombineStartDate, a.CombinePassDate, a.FundedDate, a.BlownDate,
 		a.BestDayPnL, a.ConsistencyPct, a.AvgDailyPnL, a.OverallWinRate, a.WinningDays, a.TotalTradingDays,
