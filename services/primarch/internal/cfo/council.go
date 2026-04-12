@@ -98,19 +98,40 @@ type FinancialOverview struct {
 
 // CouncilCFO orchestrates data from all financial sources.
 type CouncilCFO struct {
-	firefly *FireflyClient
-	monarch *MonarchClient
-	logger  *slog.Logger
+	firefly         *FireflyClient
+	monarch         *MonarchClient
+	logger          *slog.Logger
+	defaultCurrency string // cached from Firefly, falls back to "USD"
 }
 
 // NewCouncilCFO creates the unified finance orchestrator.
 // Either client can be nil if not configured.
 func NewCouncilCFO(firefly *FireflyClient, monarch *MonarchClient, logger *slog.Logger) *CouncilCFO {
-	return &CouncilCFO{
-		firefly: firefly,
-		monarch: monarch,
-		logger:  logger,
+	c := &CouncilCFO{
+		firefly:         firefly,
+		monarch:         monarch,
+		logger:          logger,
+		defaultCurrency: "USD",
 	}
+	// Pull default currency from Firefly — it owns all currency decisions
+	if firefly != nil {
+		accounts, err := firefly.ListAccounts()
+		if err == nil {
+			for _, a := range accounts {
+				if a.AccountRole == "defaultAsset" && a.Currency != "" {
+					c.defaultCurrency = a.Currency
+					break
+				}
+			}
+		}
+	}
+	return c
+}
+
+// DefaultCurrency returns the base currency from Firefly III.
+// All non-Firefly sources (Monarch, trading) use this for consistency.
+func (c *CouncilCFO) DefaultCurrency() string {
+	return c.defaultCurrency
 }
 
 // GetOverview builds the unified financial overview.
@@ -238,7 +259,7 @@ func (c *CouncilCFO) loadMonarchData(o *FinancialOverview, start, end time.Time)
 			Source:      SourceFamily,
 			Type:        a.Type,
 			Balance:     a.Balance,
-			Currency:    "USD",
+			Currency:    c.defaultCurrency,
 			Institution: a.Institution,
 			UpdatedAt:   a.UpdatedAt,
 		}
@@ -484,7 +505,7 @@ func (c *CouncilCFO) GetBillingSummary(tradingIncome float64) (*BillingSummary, 
 					Kind:     "life",
 					Category: t.Category,
 					Repeat:   "monthly",
-					Currency: "USD",
+					Currency: c.defaultCurrency,
 				})
 			}
 		}
