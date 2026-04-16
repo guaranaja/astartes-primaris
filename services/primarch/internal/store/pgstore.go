@@ -142,6 +142,7 @@ func (s *PGStore) ensureSchema() {
 		)`,
 
 		// ── Trading Accounts (Prop Desk) ──
+		// prop_firm is added via ALTER below to stay backward-compatible.
 		`CREATE TABLE IF NOT EXISTS trading_accounts (
 			id                   TEXT PRIMARY KEY,
 			name                 TEXT NOT NULL,
@@ -180,6 +181,9 @@ func (s *PGStore) ensureSchema() {
 			updated_at           TIMESTAMPTZ DEFAULT now()
 		)`,
 
+		// ── Trading Accounts: backward-compatible additions ──
+		`ALTER TABLE trading_accounts ADD COLUMN IF NOT EXISTS prop_firm TEXT DEFAULT ''`,
+
 		// ── Payouts ──
 		`CREATE TABLE IF NOT EXISTS payouts (
 			id           TEXT PRIMARY KEY,
@@ -191,6 +195,19 @@ func (s *PGStore) ensureSchema() {
 			requested_at TIMESTAMPTZ DEFAULT now(),
 			completed_at TIMESTAMPTZ,
 			note         TEXT
+		)`,
+
+		// ── Prop Fees ──
+		`CREATE TABLE IF NOT EXISTS prop_fees (
+			id         TEXT PRIMARY KEY,
+			account_id TEXT,
+			prop_firm  TEXT NOT NULL,
+			fee_type   TEXT NOT NULL,
+			amount     DOUBLE PRECISION NOT NULL,
+			paid_date  TEXT NOT NULL,
+			source     TEXT DEFAULT '',
+			note       TEXT DEFAULT '',
+			created_at TIMESTAMPTZ DEFAULT now()
 		)`,
 
 		// ── Payout Allocations ──
@@ -702,6 +719,7 @@ const accountCols = `id, name, broker, type, account_number, initial_balance, cu
 	max_loss_limit, profit_target, daily_pnl, trailing_dd, mll_headroom, mll_usage_pct, combine_progress_pct, withdrawal_available, account_phase,
 	combine_number, combine_start_date, combine_pass_date, funded_date, blown_date,
 	best_day_pnl, consistency_pct, avg_daily_pnl, overall_win_rate, winning_days, total_trading_days,
+	prop_firm,
 	created_at, updated_at`
 
 func (s *PGStore) ListAccounts() []domain.TradingAccount {
@@ -718,12 +736,13 @@ func (s *PGStore) scanAccounts(rows *sql.Rows) []domain.TradingAccount {
 	var out []domain.TradingAccount
 	for rows.Next() {
 		var a domain.TradingAccount
-		var acctNum, phase, combineStart, combinePass, funded, blown sql.NullString
+		var acctNum, phase, combineStart, combinePass, funded, blown, propFirm sql.NullString
 		var instruments []byte
 		if err := rows.Scan(&a.ID, &a.Name, &a.Broker, &a.Type, &acctNum, &a.InitialBalance, &a.CurrentBalance, &a.TotalPnL, &a.TotalPayouts, &a.PayoutCount, &a.ProfitSplit, &a.Status, &instruments,
 			&a.MaxLossLimit, &a.ProfitTarget, &a.DailyPnL, &a.TrailingDD, &a.MLLHeadroom, &a.MLLUsagePct, &a.CombineProgressPct, &a.WithdrawalAvail, &phase,
 			&a.CombineNumber, &combineStart, &combinePass, &funded, &blown,
 			&a.BestDayPnL, &a.ConsistencyPct, &a.AvgDailyPnL, &a.OverallWinRate, &a.WinningDays, &a.TotalTradingDays,
+			&propFirm,
 			&a.CreatedAt, &a.UpdatedAt); err != nil {
 			s.logger.Error("scan account", "error", err)
 			continue
@@ -734,6 +753,7 @@ func (s *PGStore) scanAccounts(rows *sql.Rows) []domain.TradingAccount {
 		a.CombinePassDate = combinePass.String
 		a.FundedDate = funded.String
 		a.BlownDate = blown.String
+		a.PropFirm = propFirm.String
 		out = append(out, a)
 	}
 	return out
@@ -741,13 +761,14 @@ func (s *PGStore) scanAccounts(rows *sql.Rows) []domain.TradingAccount {
 
 func (s *PGStore) GetAccount(id string) (*domain.TradingAccount, error) {
 	var a domain.TradingAccount
-	var acctNum, phase, combineStart, combinePass, funded, blown sql.NullString
+	var acctNum, phase, combineStart, combinePass, funded, blown, propFirm sql.NullString
 	var instruments []byte
 	err := s.db.QueryRow(`SELECT `+accountCols+` FROM trading_accounts WHERE id=$1`, id).
 		Scan(&a.ID, &a.Name, &a.Broker, &a.Type, &acctNum, &a.InitialBalance, &a.CurrentBalance, &a.TotalPnL, &a.TotalPayouts, &a.PayoutCount, &a.ProfitSplit, &a.Status, &instruments,
 			&a.MaxLossLimit, &a.ProfitTarget, &a.DailyPnL, &a.TrailingDD, &a.MLLHeadroom, &a.MLLUsagePct, &a.CombineProgressPct, &a.WithdrawalAvail, &phase,
 			&a.CombineNumber, &combineStart, &combinePass, &funded, &blown,
 			&a.BestDayPnL, &a.ConsistencyPct, &a.AvgDailyPnL, &a.OverallWinRate, &a.WinningDays, &a.TotalTradingDays,
+			&propFirm,
 			&a.CreatedAt, &a.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("account %q not found", id)
@@ -761,6 +782,7 @@ func (s *PGStore) GetAccount(id string) (*domain.TradingAccount, error) {
 	a.CombinePassDate = combinePass.String
 	a.FundedDate = funded.String
 	a.BlownDate = blown.String
+	a.PropFirm = propFirm.String
 	return &a, nil
 }
 
@@ -777,16 +799,24 @@ func (s *PGStore) CreateAccount(a *domain.TradingAccount) error {
 	if a.ProfitSplit == 0 && a.Type == domain.AccountPersonal {
 		a.ProfitSplit = 1.0
 	}
+	// Apply prop-firm defaults if firm is known and per-account overrides are zero.
+	if firm := domain.GetPropFirm(a.PropFirm); firm != nil {
+		if a.ProfitSplit == 0 {
+			a.ProfitSplit = firm.ProfitSplit
+		}
+	}
 	_, err := s.db.Exec(`INSERT INTO trading_accounts (id, name, broker, type, account_number, initial_balance, current_balance, total_pnl, total_payouts, payout_count, profit_split, status, instruments,
 		max_loss_limit, profit_target, daily_pnl, trailing_dd, mll_headroom, mll_usage_pct, combine_progress_pct, withdrawal_available, account_phase,
 		combine_number, combine_start_date, combine_pass_date, funded_date, blown_date,
 		best_day_pnl, consistency_pct, avg_daily_pnl, overall_win_rate, winning_days, total_trading_days,
+		prop_firm,
 		created_at, updated_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35)`,
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36)`,
 		a.ID, a.Name, a.Broker, a.Type, a.AccountNumber, a.InitialBalance, a.CurrentBalance, a.TotalPnL, a.TotalPayouts, a.PayoutCount, a.ProfitSplit, a.Status, "[]",
 		a.MaxLossLimit, a.ProfitTarget, a.DailyPnL, a.TrailingDD, a.MLLHeadroom, a.MLLUsagePct, a.CombineProgressPct, a.WithdrawalAvail, a.AccountPhase,
 		a.CombineNumber, a.CombineStartDate, a.CombinePassDate, a.FundedDate, a.BlownDate,
 		a.BestDayPnL, a.ConsistencyPct, a.AvgDailyPnL, a.OverallWinRate, a.WinningDays, a.TotalTradingDays,
+		a.PropFirm,
 		a.CreatedAt, a.UpdatedAt)
 	return err
 }
@@ -797,11 +827,13 @@ func (s *PGStore) UpdateAccount(a *domain.TradingAccount) error {
 		max_loss_limit=$11, profit_target=$12, daily_pnl=$13, trailing_dd=$14, mll_headroom=$15, mll_usage_pct=$16, combine_progress_pct=$17, withdrawal_available=$18, account_phase=$19,
 		combine_number=$20, combine_start_date=$21, combine_pass_date=$22, funded_date=$23, blown_date=$24,
 		best_day_pnl=$25, consistency_pct=$26, avg_daily_pnl=$27, overall_win_rate=$28, winning_days=$29, total_trading_days=$30,
-		updated_at=$31 WHERE id=$1`,
+		prop_firm=COALESCE(NULLIF($31,''), prop_firm),
+		updated_at=$32 WHERE id=$1`,
 		a.ID, a.Name, a.Broker, a.Type, a.CurrentBalance, a.TotalPnL, a.TotalPayouts, a.PayoutCount, a.ProfitSplit, a.Status,
 		a.MaxLossLimit, a.ProfitTarget, a.DailyPnL, a.TrailingDD, a.MLLHeadroom, a.MLLUsagePct, a.CombineProgressPct, a.WithdrawalAvail, a.AccountPhase,
 		a.CombineNumber, a.CombineStartDate, a.CombinePassDate, a.FundedDate, a.BlownDate,
 		a.BestDayPnL, a.ConsistencyPct, a.AvgDailyPnL, a.OverallWinRate, a.WinningDays, a.TotalTradingDays,
+		a.PropFirm,
 		a.UpdatedAt)
 	return err
 }
@@ -1424,6 +1456,52 @@ func (s *PGStore) ListAllocationsForMonth(year int, month int) []domain.PayoutAl
 		}
 		a.PayoutID = payoutID.String
 		out = append(out, a)
+	}
+	return out
+}
+
+// ─── Prop Fees ───────────────────────────────────────────
+
+func (s *PGStore) RecordPropFee(f domain.PropFee) error {
+	if f.CreatedAt.IsZero() {
+		f.CreatedAt = time.Now()
+	}
+	_, err := s.db.Exec(`INSERT INTO prop_fees (id, account_id, prop_firm, fee_type, amount, paid_date, source, note, created_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+		f.ID, f.AccountID, f.PropFirm, f.FeeType, f.Amount, f.PaidDate, f.Source, f.Note, f.CreatedAt)
+	if err != nil {
+		return fmt.Errorf("record prop fee: %w", err)
+	}
+	return nil
+}
+
+func (s *PGStore) ListPropFees(accountID string) []domain.PropFee {
+	var rows *sql.Rows
+	var err error
+	if accountID != "" {
+		rows, err = s.db.Query(`SELECT id, account_id, prop_firm, fee_type, amount, paid_date, source, note, created_at
+			FROM prop_fees WHERE account_id=$1 ORDER BY paid_date DESC`, accountID)
+	} else {
+		rows, err = s.db.Query(`SELECT id, account_id, prop_firm, fee_type, amount, paid_date, source, note, created_at
+			FROM prop_fees ORDER BY paid_date DESC`)
+	}
+	if err != nil {
+		s.logger.Error("list prop fees", "error", err)
+		return nil
+	}
+	defer rows.Close()
+	var out []domain.PropFee
+	for rows.Next() {
+		var f domain.PropFee
+		var acct, src, note sql.NullString
+		if err := rows.Scan(&f.ID, &acct, &f.PropFirm, &f.FeeType, &f.Amount, &f.PaidDate, &src, &note, &f.CreatedAt); err != nil {
+			s.logger.Error("scan prop fee", "error", err)
+			continue
+		}
+		f.AccountID = acct.String
+		f.Source = src.String
+		f.Note = note.String
+		out = append(out, f)
 	}
 	return out
 }

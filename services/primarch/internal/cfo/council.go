@@ -552,6 +552,48 @@ func (c *CouncilCFO) RecordPayoutTransaction(accountName string, amount float64,
 	return c.firefly.CreateTransaction(txn)
 }
 
+// RecordFeeTransaction creates a withdrawal transaction in Firefly III
+// for a prop-firm fee (combine purchase, activation, reset, data).
+func (c *CouncilCFO) RecordFeeTransaction(propFirm, feeType, source string, amount float64, paidDate string) error {
+	if c.firefly == nil {
+		return fmt.Errorf("cfo engine not configured")
+	}
+	if source == "" {
+		source = "Personal Checking"
+	}
+	if paidDate == "" {
+		paidDate = time.Now().Format("2006-01-02")
+	}
+	txn := FFTransactionStore{
+		Type:            "withdrawal",
+		Description:     fmt.Sprintf("Prop fee (%s): %s", feeType, propFirm),
+		Date:            paidDate,
+		Amount:          fmt.Sprintf("%.2f", amount),
+		SourceName:      source,
+		DestinationName: propFirm,
+		CategoryName:    "Trading Expenses",
+		Tags:            []string{"prop-fee", "astartes", feeType},
+	}
+	return c.firefly.CreateTransaction(txn)
+}
+
+// ListAssetAccountNames returns the set of Firefly asset account names so callers
+// can validate payout/fee destinations before posting.
+func (c *CouncilCFO) ListAssetAccountNames() ([]string, error) {
+	if c.firefly == nil {
+		return nil, fmt.Errorf("cfo engine not configured")
+	}
+	accts, err := c.firefly.ListAssetAccounts()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]string, 0, len(accts))
+	for _, a := range accts {
+		out = append(out, a.Name)
+	}
+	return out, nil
+}
+
 // Available returns true if at least the Firefly III client is configured.
 func (c *CouncilCFO) Available() bool {
 	return c.firefly != nil

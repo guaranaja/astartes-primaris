@@ -324,6 +324,7 @@ type AccountSnapshot struct {
 	// Optional fields for auto-creating Council trading accounts
 	Name            string   `json:"name,omitempty"`
 	Broker          string   `json:"broker,omitempty"`
+	PropFirm        string   `json:"prop_firm,omitempty"`        // "topstep", "apex", "tpt", "tradeday", "mff"
 	AccountType     string   `json:"account_type,omitempty"`     // "prop", "personal", "paper"
 	InitialBalance  float64  `json:"initial_balance,omitempty"`
 	ProfitSplit     float64  `json:"profit_split,omitempty"`     // e.g. 0.90
@@ -631,6 +632,7 @@ type TradingAccount struct {
 	ID             string      `json:"id"`
 	Name           string      `json:"name"`
 	Broker         string      `json:"broker"` // "apex", "projectx", "ibkr", "tastytrade"
+	PropFirm       string      `json:"prop_firm,omitempty"` // "topstep", "apex", "tpt", "tradeday", "mff" — empty for non-prop
 	Type           AccountType `json:"type"`
 	AccountNumber  string      `json:"account_number,omitempty"`
 	InitialBalance float64     `json:"initial_balance"`
@@ -679,6 +681,21 @@ type Payout struct {
 	RequestedAt time.Time  `json:"requested_at"`
 	CompletedAt *time.Time `json:"completed_at,omitempty"`
 	Note        string     `json:"note,omitempty"`
+}
+
+// PropFee records a fee paid to a prop firm (combine purchase, activation, reset).
+// Recording one also posts a withdrawal to Firefly tagged "prop-fee" so the cash
+// outflow hits the budget picture.
+type PropFee struct {
+	ID        string    `json:"id"`
+	AccountID string    `json:"account_id,omitempty"` // optional — eval/reset fees may predate the account row
+	PropFirm  string    `json:"prop_firm"`            // firm id (topstep/apex/...)
+	FeeType   string    `json:"fee_type"`             // "eval", "activation", "reset", "data", "other"
+	Amount    float64   `json:"amount"`
+	PaidDate  string    `json:"paid_date"`            // ISO date
+	Source    string    `json:"source,omitempty"`     // Firefly source account (e.g. "Personal Checking")
+	Note      string    `json:"note,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 // PayoutAllocation records where a payout was allocated (ledger entry, no money movement).

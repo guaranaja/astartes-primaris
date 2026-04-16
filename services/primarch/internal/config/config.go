@@ -22,6 +22,9 @@ type Config struct {
 
 	// Monarch Money integration
 	MonarchToken string // Monarch session token
+
+	// Prop desk — tax reserve % on prop payouts (1099 income)
+	TaxWithholdPct float64
 }
 
 // Load reads configuration from environment variables with sensible defaults.
@@ -35,6 +38,7 @@ func Load() *Config {
 		CFOEngineURL:   envStr("CFO_ENGINE_URL", ""),
 		CFOEngineToken: envStr("CFO_ENGINE_TOKEN", ""),
 		MonarchToken:   envStr("MONARCH_TOKEN", ""),
+		TaxWithholdPct: envFloat("TRADING_TAX_WITHHOLD_PCT", 0.30),
 	}
 }
 
@@ -68,6 +72,15 @@ func envBool(key string, fallback bool) bool {
 	if v := os.Getenv(key); v != "" {
 		if b, err := strconv.ParseBool(v); err == nil {
 			return b
+		}
+	}
+	return fallback
+}
+
+func envFloat(key string, fallback float64) float64 {
+	if v := os.Getenv(key); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil && f >= 0 && f < 1 {
+			return f
 		}
 	}
 	return fallback

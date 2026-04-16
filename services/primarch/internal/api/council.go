@@ -4,10 +4,23 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
+	"strconv"
 	"time"
 
 	"github.com/guaranaja/astartes-primaris/services/primarch/internal/domain"
 )
+
+// getTaxWithholdPct returns the % of net payouts to reserve as a Taxes allocation.
+// Default 0.30 (30%) for 1099 prop income; override with TRADING_TAX_WITHHOLD_PCT.
+func getTaxWithholdPct() float64 {
+	if v := os.Getenv("TRADING_TAX_WITHHOLD_PCT"); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil && f >= 0 && f < 1 {
+			return f
+		}
+	}
+	return 0.30
+}
 
 // RegisterCouncilRoutes adds Council endpoints to the server.
 func (s *Server) registerCouncilRoutes() {
@@ -23,6 +36,14 @@ func (s *Server) registerCouncilRoutes() {
 	s.mux.HandleFunc("GET /api/v1/council/accounts/{id}", s.handleGetAccount)
 	s.mux.HandleFunc("PUT /api/v1/council/accounts/{id}", s.handleUpdateAccount)
 	s.mux.HandleFunc("DELETE /api/v1/council/accounts/{id}", s.handleDeleteAccount)
+	s.mux.HandleFunc("POST /api/v1/council/accounts/{id}/mark-passed", s.handleMarkCombinePassed)
+
+	// Prop firm registry
+	s.mux.HandleFunc("GET /api/v1/council/prop-firms", s.handleListPropFirms)
+
+	// Prop fees (eval / activation / reset — post to Firefly as withdrawals)
+	s.mux.HandleFunc("GET /api/v1/council/prop-fees", s.handleListPropFees)
+	s.mux.HandleFunc("POST /api/v1/council/prop-fees", s.handleRecordPropFee)
 
 	// Payouts
 	s.mux.HandleFunc("GET /api/v1/council/payouts", s.handleListPayouts)
@@ -224,6 +245,28 @@ func (s *Server) handleRecordPayout(w http.ResponseWriter, r *http.Request) {
 			s.logger.Warn("failed to record payout in Firefly III", "error", err)
 		} else {
 			s.logger.Info("payout synced to Firefly III", "account", acctName, "amount", p.NetAmount)
+		}
+	}
+
+	// Auto-reserve a tax allocation (ledger-only, no money movement).
+	// Only applies to prop payouts (1099 income), not personal-account withdrawals.
+	if acct, _ := s.store.GetAccount(p.AccountID); acct != nil && acct.Type == domain.AccountProp {
+		taxPct := getTaxWithholdPct()
+		if taxPct > 0 && p.NetAmount > 0 {
+			taxAmount := p.NetAmount * taxPct
+			alloc := domain.PayoutAllocation{
+				ID:        fmt.Sprintf("alloc-tax-%d", time.Now().UnixNano()),
+				PayoutID:  p.ID,
+				Category:  "taxes",
+				Amount:    taxAmount,
+				Note:      fmt.Sprintf("Auto tax reserve (%.0f%%) for prop payout %s", taxPct*100, p.ID),
+				CreatedAt: time.Now(),
+			}
+			if err := s.store.RecordAllocation(alloc); err != nil {
+				s.logger.Warn("failed to record tax allocation", "error", err)
+			} else {
+				s.logger.Info("tax allocation reserved", "payout", p.ID, "amount", taxAmount, "pct", taxPct)
+			}
 		}
 	}
 
@@ -546,4 +589,126 @@ func (s *Server) handleUnifiedBudgets(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, budgets)
+}
+
+// ─── Prop Firms Registry ───────────────────────────────────
+
+// handleListPropFirms returns the registry of known prop firms and their rules.
+// Also returns the current tax-withholding % so the UI can show estimates.
+func (s *Server) handleListPropFirms(w http.ResponseWriter, r *http.Request) {
+	resp := map[string]interface{}{
+		"firms":            domain.PropFirmRegistry,
+		"tax_withhold_pct": getTaxWithholdPct(),
+	}
+	if s.cfo != nil && s.cfo.Available() {
+		if names, err := s.cfo.ListAssetAccountNames(); err == nil {
+			resp["firefly_asset_accounts"] = names
+		}
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// ─── Prop Fees ──────────────────────────────────────────────
+
+func (s *Server) handleListPropFees(w http.ResponseWriter, r *http.Request) {
+	accountID := r.URL.Query().Get("account_id")
+	writeJSON(w, http.StatusOK, s.store.ListPropFees(accountID))
+}
+
+// handleRecordPropFee records a prop-firm fee and posts a Firefly withdrawal.
+// AccountID is optional (eval fees may be paid before the funded row exists).
+func (s *Server) handleRecordPropFee(w http.ResponseWriter, r *http.Request) {
+	var f domain.PropFee
+	if err := json.NewDecoder(r.Body).Decode(&f); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid json: "+err.Error())
+		return
+	}
+	if f.PropFirm == "" || f.FeeType == "" || f.Amount <= 0 {
+		writeError(w, http.StatusBadRequest, "prop_firm, fee_type, and amount > 0 required")
+		return
+	}
+	if f.ID == "" {
+		f.ID = fmt.Sprintf("fee-%d", time.Now().UnixNano())
+	}
+	if f.PaidDate == "" {
+		f.PaidDate = time.Now().Format("2006-01-02")
+	}
+	if err := s.store.RecordPropFee(f); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	s.logger.Info("prop fee recorded", "firm", f.PropFirm, "type", f.FeeType, "amount", f.Amount)
+
+	// Post withdrawal to Firefly III
+	if s.cfo != nil && s.cfo.Available() {
+		firmName := f.PropFirm
+		if firm := domain.GetPropFirm(f.PropFirm); firm != nil {
+			firmName = firm.Name
+		}
+		if err := s.cfo.RecordFeeTransaction(firmName, f.FeeType, f.Source, f.Amount, f.PaidDate); err != nil {
+			s.logger.Warn("failed to record prop fee in Firefly III", "error", err)
+		} else {
+			s.logger.Info("prop fee synced to Firefly III", "firm", firmName, "amount", f.Amount)
+		}
+	}
+
+	writeJSON(w, http.StatusCreated, f)
+}
+
+// ─── Combine Rubicon ────────────────────────────────────────
+
+// handleMarkCombinePassed transitions an account from combine → fxt (funded).
+// Stamps combine_pass_date and funded_date (if not already set) and moves phase.
+// Idempotent: calling again on an fxt/live account just returns it unchanged.
+func (s *Server) handleMarkCombinePassed(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	a, err := s.store.GetAccount(id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	today := time.Now().Format("2006-01-02")
+	changed := false
+	if a.AccountPhase == "combine" || a.AccountPhase == "" {
+		a.AccountPhase = "fxt"
+		changed = true
+	}
+	if a.CombinePassDate == "" {
+		a.CombinePassDate = today
+		changed = true
+	}
+	if a.FundedDate == "" {
+		a.FundedDate = today
+		changed = true
+	}
+	if a.Status == "blown" {
+		a.Status = "active"
+		a.BlownDate = ""
+		changed = true
+	}
+	if !changed {
+		writeJSON(w, http.StatusOK, a)
+		return
+	}
+	if err := s.store.UpdateAccount(a); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	s.logger.Info("rubicon crossed — combine passed", "account", id, "firm", a.PropFirm, "pass_date", a.CombinePassDate)
+	// Broadcast over SSE so Aurum can toast it
+	if s.hub != nil {
+		s.hub.Broadcast(domain.SystemEvent{
+			ID:        fmt.Sprintf("rubicon-%s-%d", a.ID, time.Now().UnixNano()),
+			Service:   "primarch",
+			Event:     "combine.passed",
+			Timestamp: time.Now(),
+			Data: map[string]interface{}{
+				"account_id":   a.ID,
+				"account_name": a.Name,
+				"prop_firm":    a.PropFirm,
+				"pass_date":    a.CombinePassDate,
+			},
+		})
+	}
+	writeJSON(w, http.StatusOK, a)
 }

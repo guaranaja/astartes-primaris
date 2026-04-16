@@ -87,6 +87,10 @@ type DataStore interface {
 	RecordAllocation(a domain.PayoutAllocation) error
 	ListAllocationsForMonth(year int, month int) []domain.PayoutAllocation
 
+	// ─── Prop Fees ─────────────────────────────────────
+	RecordPropFee(f domain.PropFee) error
+	ListPropFees(accountID string) []domain.PropFee
+
 	// ─── Holdings ──────────────────────────────────────
 	ListHoldings() []domain.Holding
 	CreateHolding(h *domain.Holding) error

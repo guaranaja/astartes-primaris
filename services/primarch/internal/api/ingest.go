@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -123,6 +124,7 @@ func (s *Server) handleEngineAccountSnapshot(w http.ResponseWriter, r *http.Requ
 			ID:             snap.BrokerAccountID,
 			Name:           name,
 			Broker:         broker,
+			PropFirm:       snap.PropFirm,
 			Type:           acctType,
 			InitialBalance: snap.InitialBalance,
 			CurrentBalance: snap.Balance,
@@ -156,9 +158,32 @@ func (s *Server) handleEngineAccountSnapshot(w http.ResponseWriter, r *http.Requ
 			WinningDays:      snap.WinningDays,
 			TotalTradingDays: snap.TotalTradingDays,
 		}
+		// Detect Rubicon transition: previous state was combine, engine now reports fxt/live.
+		prev, _ := s.store.GetAccount(acct.ID)
+		prevPhase := ""
+		if prev != nil {
+			prevPhase = prev.AccountPhase
+		}
 		if err := s.store.CreateAccount(acct); err != nil {
 			// Already exists — update
 			s.store.UpdateAccount(acct)
+		}
+		if prev != nil && (prevPhase == "combine" || prevPhase == "") &&
+			(acct.AccountPhase == "fxt" || acct.AccountPhase == "live") && s.hub != nil {
+			s.logger.Info("rubicon crossed via engine snapshot", "account", acct.ID, "firm", acct.PropFirm)
+			s.hub.Broadcast(domain.SystemEvent{
+				ID:        fmt.Sprintf("rubicon-%s-%d", acct.ID, time.Now().UnixNano()),
+				Service:   "primarch",
+				Event:     "combine.passed",
+				Timestamp: time.Now(),
+				Data: map[string]interface{}{
+					"account_id":   acct.ID,
+					"account_name": acct.Name,
+					"prop_firm":    acct.PropFirm,
+					"pass_date":    acct.CombinePassDate,
+					"source":       "engine_snapshot",
+				},
+			})
 		}
 	}
 

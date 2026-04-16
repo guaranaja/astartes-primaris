@@ -138,6 +138,14 @@ const App = {
     if (event.event === 'wake' || event.event === 'sleep' || event.event === 'failed') {
       this.updateMarineIndicator(event.marine_id, event.event);
     }
+
+    // Rubicon — combine passed
+    if (event.event === 'combine.passed') {
+      const name = (event.data && (event.data.account_name || event.data.account_id)) || 'account';
+      const firm = event.data && event.data.prop_firm;
+      this.flash(`🩸 Rubicon crossed — ${name}${firm ? ' @ ' + firm : ''} is FUNDED`, 'success');
+      this.loadCouncil();
+    }
   },
 
   updateMarineIndicator(marineId, event) {
@@ -785,7 +793,7 @@ const App = {
 
   async loadCouncil() {
     try {
-      const [roadmap, accounts, payouts, budget, allocations, advice, metrics, goals, expenses, billing, budgets] = await Promise.all([
+      const [roadmap, accounts, payouts, budget, allocations, advice, metrics, goals, expenses, billing, budgets, propFirms] = await Promise.all([
         this.api('/council/roadmap'),
         this.api('/council/accounts'),
         this.api('/council/payouts'),
@@ -797,7 +805,13 @@ const App = {
         this.api('/council/expenses'),
         this.api('/council/billing'),
         this.api('/council/budgets').catch(() => null),
+        this.api('/council/prop-firms').catch(() => null),
       ]);
+      if (propFirms) {
+        this.state.propFirms = propFirms.firms || [];
+        this.state.taxWithholdPct = propFirms.tax_withhold_pct || 0.30;
+        this.state.fireflyAccounts = propFirms.firefly_asset_accounts || [];
+      }
       this.state.roadmap = roadmap;
       this.state.accounts = accounts || [];
       this.state.payouts = payouts || [];
@@ -1501,7 +1515,12 @@ const App = {
     }
   },
 
-  addAccount() {
+  async addAccount() {
+    // Load prop firm registry so the form can offer the right defaults.
+    const firms = (this.state.propFirms || []).length
+      ? this.state.propFirms
+      : await this.loadPropFirms();
+    const firmOpts = firms.map(f => `<option value="${f.id}" data-split="${Math.round(f.profit_split*100)}">${esc(f.name)}</option>`).join('');
     this.openModal(`
       <h3 style="margin-bottom: 16px">Add Trading Account</h3>
       <form onsubmit="App.submitAccount(event)" style="display:flex;flex-direction:column;gap:12px">
@@ -1521,16 +1540,17 @@ const App = {
               <option value="schwab">Schwab</option>
               <option value="tastytrade">TastyTrade</option>
               <option value="fidelity">Fidelity</option>
-              <option value="apex">Apex</option>
+              <option value="tradovate">Tradovate</option>
+              <option value="rithmic">Rithmic</option>
+              <option value="topstepx">TopstepX</option>
               <option value="projectx">ProjectX</option>
               <option value="webull">Webull</option>
-              <option value="tradovate">Tradovate</option>
               <option value="other">Other</option>
             </select>
           </div>
           <div>
             <label>Type</label>
-            <select id="newAcctType" class="input">
+            <select id="newAcctType" class="input" onchange="App.onAcctTypeChange(this.value)">
               <option value="personal">Personal</option>
               <option value="retirement">Retirement (IRA/401k)</option>
               <option value="prop">Prop (Funded)</option>
@@ -1538,6 +1558,13 @@ const App = {
               <option value="paper">Paper</option>
             </select>
           </div>
+        </div>
+        <div class="form-row" id="newAcctPropFirmRow" style="display:none">
+          <label>Prop Firm</label>
+          <select id="newAcctPropFirm" class="input" onchange="App.onPropFirmChange()">
+            <option value="">— select firm —</option>
+            ${firmOpts}
+          </select>
         </div>
         <div class="form-row two-col">
           <div>
@@ -1558,9 +1585,36 @@ const App = {
     `);
   },
 
+  onAcctTypeChange(val) {
+    const row = document.getElementById('newAcctPropFirmRow');
+    if (row) row.style.display = val === 'prop' ? '' : 'none';
+  },
+
+  onPropFirmChange() {
+    const sel = document.getElementById('newAcctPropFirm');
+    const opt = sel.options[sel.selectedIndex];
+    const split = opt && opt.dataset.split;
+    if (split) document.getElementById('newAcctSplit').value = split;
+  },
+
+  async loadPropFirms() {
+    try {
+      const data = await this.api('/council/prop-firms');
+      this.state.propFirms = data.firms || [];
+      this.state.taxWithholdPct = data.tax_withhold_pct || 0.30;
+      this.state.fireflyAccounts = data.firefly_asset_accounts || [];
+      return this.state.propFirms;
+    } catch (e) {
+      this.state.propFirms = [];
+      return [];
+    }
+  },
+
   async submitAccount(e) {
     e.preventDefault();
     const balance = parseFloat(document.getElementById('newAcctBalance').value);
+    const type = document.getElementById('newAcctType').value;
+    const propFirmEl = document.getElementById('newAcctPropFirm');
     try {
       await this.api('/council/accounts', {
         method: 'POST',
@@ -1568,7 +1622,8 @@ const App = {
           id: document.getElementById('newAcctId').value,
           name: document.getElementById('newAcctName').value,
           broker: document.getElementById('newAcctBroker').value,
-          type: document.getElementById('newAcctType').value,
+          prop_firm: type === 'prop' && propFirmEl ? propFirmEl.value : '',
+          type: type,
           initial_balance: balance,
           current_balance: balance,
           profit_split: parseFloat(document.getElementById('newAcctSplit').value) / 100,
@@ -1582,29 +1637,43 @@ const App = {
     }
   },
 
-  recordPayout() {
+  async recordPayout() {
+    if (!this.state.propFirms) await this.loadPropFirms();
     const accounts = this.state.accounts.filter(a => a.status === 'active');
+    const taxPct = this.state.taxWithholdPct || 0.30;
+    const ffAccts = this.state.fireflyAccounts || [];
+    const destOpts = ffAccts.length
+      ? ffAccts.map(n => `<option value="${esc(n)}">${esc(n)}</option>`).join('')
+      : `<option value="Personal Checking">Personal Checking</option>
+         <option value="Savings">Savings</option>
+         <option value="Bills">Bills</option>`;
     this.openModal(`
       <h3 style="margin-bottom: 16px">Record Payout</h3>
       <form onsubmit="App.submitPayout(event)" style="display:flex;flex-direction:column;gap:12px">
         <div class="form-row">
           <label>Account</label>
-          <select id="payoutAcct" class="input" required>
-            ${accounts.map(a => `<option value="${a.id}">${esc(a.name)} ($${fmt(a.current_balance)})</option>`).join('')}
+          <select id="payoutAcct" class="input" required onchange="App.updatePayoutEstimate()">
+            ${accounts.map(a => `<option value="${a.id}" data-type="${a.type}" data-split="${a.profit_split||0.9}">${esc(a.name)} ($${fmt(a.current_balance)})</option>`).join('')}
             ${accounts.length === 0 ? '<option value="">No active accounts</option>' : ''}
           </select>
         </div>
-        <div class="form-row">
-          <label>Gross Amount (before split)</label>
-          <input type="number" id="payoutGross" class="input" placeholder="1000" required>
+        <div class="form-row two-col">
+          <div>
+            <label>Gross Amount (before split)</label>
+            <input type="number" id="payoutGross" class="input" placeholder="1000" required oninput="App.updatePayoutEstimate()">
+          </div>
+          <div>
+            <label>Net Override (optional)</label>
+            <input type="number" id="payoutNet" class="input" placeholder="auto = gross × split" oninput="App.updatePayoutEstimate()">
+          </div>
+        </div>
+        <div id="payoutEstimate" style="padding:10px;border:1px solid var(--border);border-radius:6px;background:var(--bg-2);font-size:12px;line-height:1.6">
+          Fill in gross amount to see split &amp; tax reserve.
         </div>
         <div class="form-row">
-          <label>Destination</label>
+          <label>Destination (Firefly asset account)</label>
           <select id="payoutDest" class="input">
-            <option value="bank">Bank Account</option>
-            <option value="personal_trading">Personal Trading Account</option>
-            <option value="savings">Savings</option>
-            <option value="bills">Bills</option>
+            ${destOpts}
           </select>
         </div>
         <div class="form-row">
@@ -1614,17 +1683,49 @@ const App = {
         <button type="submit" class="btn btn-primary btn-lg">Record Payout</button>
       </form>
     `);
+    this.updatePayoutEstimate();
+  },
+
+  updatePayoutEstimate() {
+    const acctSel = document.getElementById('payoutAcct');
+    const grossEl = document.getElementById('payoutGross');
+    const netOverrideEl = document.getElementById('payoutNet');
+    const estEl = document.getElementById('payoutEstimate');
+    if (!acctSel || !grossEl || !estEl) return;
+    const opt = acctSel.options[acctSel.selectedIndex];
+    const isProp = opt && opt.dataset.type === 'prop';
+    const split = parseFloat(opt && opt.dataset.split) || 0.9;
+    const gross = parseFloat(grossEl.value) || 0;
+    const netOverride = parseFloat(netOverrideEl && netOverrideEl.value);
+    const net = Number.isFinite(netOverride) && netOverride > 0 ? netOverride : gross * split;
+    const taxPct = this.state.taxWithholdPct || 0.30;
+    const taxReserve = isProp ? net * taxPct : 0;
+    const takeHome = net - taxReserve;
+    estEl.innerHTML = `
+      <div style="display:flex;justify-content:space-between"><span>Gross</span><span>$${fmt(gross)}</span></div>
+      <div style="display:flex;justify-content:space-between"><span>Profit split (${Math.round(split*100)}%)</span><span>$${fmt(net)}</span></div>
+      ${isProp ? `<div style="display:flex;justify-content:space-between;color:var(--red)"><span>Tax reserve (${Math.round(taxPct*100)}%)</span><span>−$${fmt(taxReserve)}</span></div>` : ''}
+      <div style="display:flex;justify-content:space-between;font-weight:600;border-top:1px solid var(--border);margin-top:6px;padding-top:6px"><span>Take-home</span><span>$${fmt(takeHome)}</span></div>
+      ${isProp ? '<div style="color:var(--text-3);font-size:11px;margin-top:4px">Tax reserve is a ledger allocation, not a transfer. Adjust via TRADING_TAX_WITHHOLD_PCT.</div>' : ''}
+    `;
   },
 
   async submitPayout(e) {
     e.preventDefault();
+    const acctSel = document.getElementById('payoutAcct');
+    const opt = acctSel.options[acctSel.selectedIndex];
+    const split = parseFloat(opt && opt.dataset.split) || 0.9;
+    const gross = parseFloat(document.getElementById('payoutGross').value);
+    const netOverride = parseFloat(document.getElementById('payoutNet').value);
+    const net = Number.isFinite(netOverride) && netOverride > 0 ? netOverride : gross * split;
     try {
       await this.api('/council/payouts', {
         method: 'POST',
         body: {
           id: 'payout-' + Date.now(),
-          account_id: document.getElementById('payoutAcct').value,
-          gross_amount: parseFloat(document.getElementById('payoutGross').value),
+          account_id: acctSel.value,
+          gross_amount: gross,
+          net_amount: net,
           destination: document.getElementById('payoutDest').value,
           note: document.getElementById('payoutNote').value,
         },
@@ -1632,6 +1733,109 @@ const App = {
       this.closeModal();
       this.loadCouncil();
       this.flash('Payout recorded', 'info');
+    } catch (err) {
+      this.flash(err.message, 'error');
+    }
+  },
+
+  // ─── Prop Fee ─────────────────────────────────────────
+
+  async recordPropFee(accountId, firmId) {
+    if (!this.state.propFirms) await this.loadPropFirms();
+    const firms = this.state.propFirms || [];
+    const firmOpts = firms.map(f => `<option value="${f.id}" ${f.id===firmId?'selected':''} data-eval="${f.default_eval_fee}" data-act="${f.default_activation}" data-reset="${f.default_reset_fee}">${esc(f.name)}</option>`).join('');
+    const ffAccts = this.state.fireflyAccounts || [];
+    const sourceOpts = ffAccts.length
+      ? ffAccts.map(n => `<option value="${esc(n)}">${esc(n)}</option>`).join('')
+      : '<option value="Personal Checking">Personal Checking</option>';
+    this.openModal(`
+      <h3 style="margin-bottom:16px">Record Prop Fee</h3>
+      <form onsubmit="App.submitPropFee(event, '${accountId||''}')" style="display:flex;flex-direction:column;gap:12px">
+        <div class="form-row two-col">
+          <div>
+            <label>Prop Firm</label>
+            <select id="feeFirm" class="input" required onchange="App.onFeeFirmOrTypeChange()">
+              ${firmOpts}
+            </select>
+          </div>
+          <div>
+            <label>Fee Type</label>
+            <select id="feeType" class="input" required onchange="App.onFeeFirmOrTypeChange()">
+              <option value="eval">Evaluation / Combine purchase</option>
+              <option value="activation">Funded activation</option>
+              <option value="reset">Reset (after breach)</option>
+              <option value="data">Market data</option>
+              <option value="other">Other</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-row two-col">
+          <div>
+            <label>Amount ($)</label>
+            <input type="number" id="feeAmount" class="input" step="0.01" required>
+          </div>
+          <div>
+            <label>Paid Date</label>
+            <input type="date" id="feeDate" class="input" value="${new Date().toISOString().slice(0,10)}" required>
+          </div>
+        </div>
+        <div class="form-row">
+          <label>Source (Firefly asset account)</label>
+          <select id="feeSource" class="input">${sourceOpts}</select>
+        </div>
+        <div class="form-row">
+          <label>Note</label>
+          <input type="text" id="feeNote" class="input" placeholder="e.g. Black Friday promo">
+        </div>
+        <button type="submit" class="btn btn-primary btn-lg">Record Fee</button>
+      </form>
+    `);
+    this.onFeeFirmOrTypeChange();
+  },
+
+  onFeeFirmOrTypeChange() {
+    const firmSel = document.getElementById('feeFirm');
+    const typeSel = document.getElementById('feeType');
+    const amtEl = document.getElementById('feeAmount');
+    if (!firmSel || !typeSel || !amtEl) return;
+    const opt = firmSel.options[firmSel.selectedIndex];
+    if (!opt) return;
+    const defaults = {eval: opt.dataset.eval, activation: opt.dataset.act, reset: opt.dataset.reset};
+    const v = defaults[typeSel.value];
+    if (v !== undefined && v !== '') amtEl.value = v;
+  },
+
+  async submitPropFee(e, accountId) {
+    e.preventDefault();
+    try {
+      await this.api('/council/prop-fees', {
+        method: 'POST',
+        body: {
+          account_id: accountId || '',
+          prop_firm: document.getElementById('feeFirm').value,
+          fee_type: document.getElementById('feeType').value,
+          amount: parseFloat(document.getElementById('feeAmount').value),
+          paid_date: document.getElementById('feeDate').value,
+          source: document.getElementById('feeSource').value,
+          note: document.getElementById('feeNote').value,
+        },
+      });
+      this.closeModal();
+      this.flash('Prop fee recorded', 'info');
+      this.loadCouncil();
+    } catch (err) {
+      this.flash(err.message, 'error');
+    }
+  },
+
+  // ─── Combine Rubicon ──────────────────────────────────
+
+  async markCombinePassed(accountId) {
+    if (!confirm('Mark this combine as PASSED? Transitions to funded (fxt) phase.')) return;
+    try {
+      const a = await this.api(`/council/accounts/${accountId}/mark-passed`, {method: 'POST'});
+      this.flash(`🩸 Rubicon crossed — ${a.name || accountId} funded`, 'success');
+      this.loadCouncil();
     } catch (err) {
       this.flash(err.message, 'error');
     }
@@ -1792,12 +1996,16 @@ const App = {
       const combProg = a.combine_progress_pct || 0;
       const consistencyOk = (a.consistency_pct || 0) < 50;
 
+      const firm = a.prop_firm ? (this.state.propFirms || []).find(f => f.id === a.prop_firm) : null;
+      const firmLabel = firm ? firm.name : '';
+      const canMarkPassed = phase === 'combine' && isActive && combProg >= 80;
       return `
         <div class="prop-account-card ${a.status}">
           <div class="prop-acct-header">
             <div>
               <span class="prop-acct-name">${esc(a.name)}</span>
               <span class="prop-acct-broker">${esc(a.broker)}</span>
+              ${firmLabel ? `<span style="color:var(--accent);font-size:11px;font-weight:600;margin-left:6px">${esc(firmLabel)}</span>` : ''}
               ${a.combine_number ? `<span style="color:var(--text-3);font-size:11px">#${a.combine_number}</span>` : ''}
             </div>
             <span class="prop-acct-status" style="color:${statusColor}">${phaseLabels[phase] || a.status.toUpperCase()}</span>
@@ -1874,12 +2082,13 @@ const App = {
             </div>
           </div>
 
-          ${phase === 'fxt' || phase === 'live' ? (isActive && profit > 500 ? `
-            <div class="prop-acct-actions">
-              <button class="btn btn-sm btn-primary" onclick="App.recordPayoutForAccount('${a.id}', '${esc(a.name)}', ${a.current_balance})">Request Payout</button>
-            </div>` : '') : `
-            <div style="padding:8px 0;font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:0.8px">Not withdrawal-eligible</div>
-          `}
+          <div class="prop-acct-actions" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">
+            ${(phase === 'fxt' || phase === 'live') && isActive && profit > 500 ? `
+              <button class="btn btn-sm btn-primary" onclick="App.recordPayoutForAccount('${a.id}', '${esc(a.name)}', ${a.current_balance})">Request Payout</button>` : ''}
+            ${canMarkPassed ? `
+              <button class="btn btn-sm" style="background:var(--gold);color:#000" onclick="App.markCombinePassed('${a.id}')">Mark Combine Passed</button>` : ''}
+            <button class="btn btn-sm btn-ghost" onclick="App.recordPropFee('${a.id}', '${a.prop_firm||''}')">+ Record Fee</button>
+          </div>
         </div>`;
     }).join('');
   },

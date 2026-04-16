@@ -37,6 +37,7 @@ type Store struct {
 	snapshots     []domain.AccountSnapshot
 	bars                map[string]*domain.MarketBar // key: symbol:timeframe:time
 	payoutAllocations   []domain.PayoutAllocation
+	propFees            []domain.PropFee
 }
 
 // New creates a new empty store.
@@ -388,6 +389,30 @@ func (s *Store) ListAllocationsForMonth(year int, month int) []domain.PayoutAllo
 	for _, a := range s.payoutAllocations {
 		if a.CreatedAt.Year() == year && int(a.CreatedAt.Month()) == month {
 			out = append(out, a)
+		}
+	}
+	return out
+}
+
+// ─── Prop Fees ──────────────────────────────────────────────
+
+func (s *Store) RecordPropFee(f domain.PropFee) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if f.CreatedAt.IsZero() {
+		f.CreatedAt = time.Now()
+	}
+	s.propFees = append(s.propFees, f)
+	return nil
+}
+
+func (s *Store) ListPropFees(accountID string) []domain.PropFee {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var out []domain.PropFee
+	for _, f := range s.propFees {
+		if accountID == "" || f.AccountID == accountID {
+			out = append(out, f)
 		}
 	}
 	return out
