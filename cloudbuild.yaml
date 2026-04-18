@@ -115,8 +115,10 @@ steps:
       - --allow-unauthenticated
       - --set-env-vars=ENVIRONMENT=${_ENVIRONMENT},ADMIN_EMAILS=dave@janzend.com
       - --set-secrets=GOOGLE_CLIENT_ID=google-client-id:latest,PRIMARCH_AUTH_PASSWORD=primarch-auth-password:latest,ALPACA_API_KEY=alpaca-api-key:latest,ALPACA_SECRET_KEY=alpaca-secret-key:latest,CLAUDE_API_KEY=claude-api-key:latest,PRIMARCH_SERVICE_TOKEN=primarch-service-token:latest,PRIMARCH_DB_URL=primarch-db-url:latest,CFO_ENGINE_URL=cfo-engine-url:latest,CFO_ENGINE_TOKEN=firefly-access-token:latest,MONARCH_TOKEN=monarch-token:latest
-      - --vpc-connector=astartes-vpc-${_ENVIRONMENT}
+      - --network=default
+      - --subnet=default
       - --vpc-egress=private-ranges-only
+      - --clear-vpc-connector
       - --quiet
     waitFor: [push-primarch]
 
@@ -150,8 +152,10 @@ steps:
       - --min-instances=1
       - --set-env-vars=^~^ENVIRONMENT=${_ENVIRONMENT}~AUSPEX_PROVIDER=alpaca~ALPACA_FEED=iex~AUSPEX_SYMBOLS=SPY,AAPL,MSFT,GOOGL,AMZN,NVDA,META,TSLA~LIBRARIUM_HOST=10.79.0.3~LIBRARIUM_DB=librarium~LIBRARIUM_USER=librarium~AUSPEX_BACKFILL_DAYS=30~VOX_ENABLED=false
       - --set-secrets=ALPACA_API_KEY=alpaca-api-key:latest,ALPACA_SECRET_KEY=alpaca-secret-key:latest,LIBRARIUM_PASSWORD=librarium-db-password-dev:latest
-      - --vpc-connector=astartes-vpc-${_ENVIRONMENT}
+      - --network=default
+      - --subnet=default
       - --vpc-egress=private-ranges-only
+      - --clear-vpc-connector
       - --quiet
     waitFor: [push-auspex]
 
