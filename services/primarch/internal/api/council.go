@@ -37,6 +37,7 @@ func (s *Server) registerCouncilRoutes() {
 	s.mux.HandleFunc("PUT /api/v1/council/accounts/{id}", s.handleUpdateAccount)
 	s.mux.HandleFunc("DELETE /api/v1/council/accounts/{id}", s.handleDeleteAccount)
 	s.mux.HandleFunc("POST /api/v1/council/accounts/{id}/mark-passed", s.handleMarkCombinePassed)
+	s.mux.HandleFunc("POST /api/v1/council/accounts/{id}/mark-funded", s.handleMarkCombineFunded)
 
 	// Prop firm registry
 	s.mux.HandleFunc("GET /api/v1/council/prop-firms", s.handleListPropFirms)
@@ -48,6 +49,7 @@ func (s *Server) registerCouncilRoutes() {
 	// Payouts
 	s.mux.HandleFunc("GET /api/v1/council/payouts", s.handleListPayouts)
 	s.mux.HandleFunc("POST /api/v1/council/payouts", s.handleRecordPayout)
+	s.mux.HandleFunc("DELETE /api/v1/council/payouts/{id}", s.handleDeletePayout)
 
 	// Budget
 	s.mux.HandleFunc("GET /api/v1/council/budget", s.handleGetBudget)
@@ -664,10 +666,48 @@ func (s *Server) handleRecordPropFee(w http.ResponseWriter, r *http.Request) {
 
 // ─── Combine Rubicon ────────────────────────────────────────
 
-// handleMarkCombinePassed transitions an account from combine → fxt (funded).
-// Stamps combine_pass_date and funded_date (if not already set) and moves phase.
-// Idempotent: calling again on an fxt/live account just returns it unchanged.
+// handleMarkCombinePassed stamps combine_pass_date (combine evaluation passed).
+// Does NOT flip phase or set funded_date — that's a separate event at the
+// prop firm's discretion (typically a few days later, after funded-account
+// activation). Call mark-funded once the funded account goes live.
 func (s *Server) handleMarkCombinePassed(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	a, err := s.store.GetAccount(id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	if a.CombinePassDate != "" {
+		writeJSON(w, http.StatusOK, a)
+		return
+	}
+	a.CombinePassDate = time.Now().Format("2006-01-02")
+	if err := s.store.UpdateAccount(a); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	s.logger.Info("combine passed", "account", id, "firm", a.PropFirm, "pass_date", a.CombinePassDate)
+	if s.hub != nil {
+		s.hub.Broadcast(domain.SystemEvent{
+			ID:        fmt.Sprintf("combine-passed-%s-%d", a.ID, time.Now().UnixNano()),
+			Service:   "primarch",
+			Event:     "combine.passed",
+			Timestamp: time.Now(),
+			Data: map[string]interface{}{
+				"account_id":   a.ID,
+				"account_name": a.Name,
+				"prop_firm":    a.PropFirm,
+				"pass_date":    a.CombinePassDate,
+			},
+		})
+	}
+	writeJSON(w, http.StatusOK, a)
+}
+
+// handleMarkCombineFunded stamps funded_date and moves phase → fxt.
+// This is the Rubicon moment — crossing from combine capital (no cash value)
+// to funded capital (real money). Typically happens 2–7 days after combine pass.
+func (s *Server) handleMarkCombineFunded(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	a, err := s.store.GetAccount(id)
 	if err != nil {
@@ -676,16 +716,12 @@ func (s *Server) handleMarkCombinePassed(w http.ResponseWriter, r *http.Request)
 	}
 	today := time.Now().Format("2006-01-02")
 	changed := false
-	if a.AccountPhase == "combine" || a.AccountPhase == "" {
-		a.AccountPhase = "fxt"
-		changed = true
-	}
-	if a.CombinePassDate == "" {
-		a.CombinePassDate = today
-		changed = true
-	}
 	if a.FundedDate == "" {
 		a.FundedDate = today
+		changed = true
+	}
+	if a.AccountPhase != "fxt" && a.AccountPhase != "live" {
+		a.AccountPhase = "fxt"
 		changed = true
 	}
 	if a.Status == "blown" {
@@ -701,21 +737,32 @@ func (s *Server) handleMarkCombinePassed(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	s.logger.Info("rubicon crossed — combine passed", "account", id, "firm", a.PropFirm, "pass_date", a.CombinePassDate)
-	// Broadcast over SSE so Aurum can toast it
+	s.logger.Info("rubicon crossed — account funded", "account", id, "firm", a.PropFirm, "funded_date", a.FundedDate)
 	if s.hub != nil {
 		s.hub.Broadcast(domain.SystemEvent{
 			ID:        fmt.Sprintf("rubicon-%s-%d", a.ID, time.Now().UnixNano()),
 			Service:   "primarch",
-			Event:     "combine.passed",
+			Event:     "account.funded",
 			Timestamp: time.Now(),
 			Data: map[string]interface{}{
 				"account_id":   a.ID,
 				"account_name": a.Name,
 				"prop_firm":    a.PropFirm,
-				"pass_date":    a.CombinePassDate,
+				"funded_date":  a.FundedDate,
 			},
 		})
 	}
 	writeJSON(w, http.StatusOK, a)
+}
+
+// handleDeletePayout removes a payout, reverses account totals, and drops
+// auto-created tax allocations linked to it.
+func (s *Server) handleDeletePayout(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if err := s.store.DeletePayout(id); err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	s.logger.Info("payout deleted", "id", id)
+	w.WriteHeader(http.StatusNoContent)
 }

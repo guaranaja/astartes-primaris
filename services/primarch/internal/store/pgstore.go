@@ -918,6 +918,31 @@ func (s *PGStore) RecordPayout(p domain.Payout) error {
 	return err
 }
 
+// DeletePayout removes a payout record and reverses its effect on account totals.
+// Also removes any PayoutAllocation entries linked to this payout (e.g. auto tax reserve).
+func (s *PGStore) DeletePayout(id string) error {
+	p := s.GetPayout(id)
+	if p == nil {
+		return fmt.Errorf("payout %q not found", id)
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`DELETE FROM payout_allocations WHERE payout_id=$1`, id); err != nil {
+		return fmt.Errorf("delete payout allocations: %w", err)
+	}
+	if _, err := tx.Exec(`DELETE FROM payouts WHERE id=$1`, id); err != nil {
+		return fmt.Errorf("delete payout: %w", err)
+	}
+	if _, err := tx.Exec(`UPDATE trading_accounts SET total_payouts = GREATEST(total_payouts - $2, 0), payout_count = GREATEST(payout_count - 1, 0), updated_at = $3 WHERE id = $1`,
+		p.AccountID, p.NetAmount, time.Now()); err != nil {
+		return fmt.Errorf("reverse account totals: %w", err)
+	}
+	return tx.Commit()
+}
+
 // ─── Budget & Allocations ───────────────────────────────────
 
 func (s *PGStore) GetBudget() *domain.BudgetSummary {

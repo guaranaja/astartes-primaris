@@ -51,6 +51,7 @@ type DataStore interface {
 	ListPayouts(accountID string) []domain.Payout
 	GetPayout(id string) *domain.Payout
 	RecordPayout(p domain.Payout) error
+	DeletePayout(id string) error
 
 	// ─── Budget & Allocations ───────────────────────────
 	GetBudget() *domain.BudgetSummary

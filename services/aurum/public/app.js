@@ -139,11 +139,18 @@ const App = {
       this.updateMarineIndicator(event.marine_id, event.event);
     }
 
-    // Rubicon — combine passed
+    // Combine passed (evaluation cleared, not yet funded)
     if (event.event === 'combine.passed') {
       const name = (event.data && (event.data.account_name || event.data.account_id)) || 'account';
+      this.flash(`Combine passed — ${name}`, 'success');
+      this.loadCouncil();
+    }
+
+    // Rubicon — account funded (real money, crossed from combine/sim to live capital)
+    if (event.event === 'account.funded') {
+      const name = (event.data && (event.data.account_name || event.data.account_id)) || 'account';
       const firm = event.data && event.data.prop_firm;
-      this.flash(`🩸 Rubicon crossed — ${name}${firm ? ' @ ' + firm : ''} is FUNDED`, 'success');
+      this.flash(`🩸 Rubicon crossed — ${name}${firm ? ' @ ' + firm : ''} FUNDED`, 'success');
       this.loadCouncil();
     }
   },
@@ -1831,10 +1838,21 @@ const App = {
   // ─── Combine Rubicon ──────────────────────────────────
 
   async markCombinePassed(accountId) {
-    if (!confirm('Mark this combine as PASSED? Transitions to funded (fxt) phase.')) return;
+    if (!confirm('Mark this combine as PASSED? Stamps combine_pass_date only — funded activation is a separate step.')) return;
     try {
       const a = await this.api(`/council/accounts/${accountId}/mark-passed`, {method: 'POST'});
-      this.flash(`🩸 Rubicon crossed — ${a.name || accountId} funded`, 'success');
+      this.flash(`Combine passed — ${a.name || accountId}. Activate funded account when ready.`, 'success');
+      this.loadCouncil();
+    } catch (err) {
+      this.flash(err.message, 'error');
+    }
+  },
+
+  async markAccountFunded(accountId) {
+    if (!confirm('Mark this account as FUNDED? This is the Rubicon — moves to fxt phase (real money).')) return;
+    try {
+      const a = await this.api(`/council/accounts/${accountId}/mark-funded`, {method: 'POST'});
+      this.flash(`🩸 Rubicon crossed — ${a.name || accountId} FUNDED`, 'success');
       this.loadCouncil();
     } catch (err) {
       this.flash(err.message, 'error');
@@ -1998,7 +2016,8 @@ const App = {
 
       const firm = a.prop_firm ? (this.state.propFirms || []).find(f => f.id === a.prop_firm) : null;
       const firmLabel = firm ? firm.name : '';
-      const canMarkPassed = phase === 'combine' && isActive && combProg >= 80;
+      const canMarkPassed = phase === 'combine' && isActive && combProg >= 80 && !a.combine_pass_date;
+      const canMarkFunded = !!a.combine_pass_date && !a.funded_date;
       return `
         <div class="prop-account-card ${a.status}">
           <div class="prop-acct-header">
@@ -2087,6 +2106,8 @@ const App = {
               <button class="btn btn-sm btn-primary" onclick="App.recordPayoutForAccount('${a.id}', '${esc(a.name)}', ${a.current_balance})">Request Payout</button>` : ''}
             ${canMarkPassed ? `
               <button class="btn btn-sm" style="background:var(--gold);color:#000" onclick="App.markCombinePassed('${a.id}')">Mark Combine Passed</button>` : ''}
+            ${canMarkFunded ? `
+              <button class="btn btn-sm" style="background:var(--gold);color:#000" onclick="App.markAccountFunded('${a.id}')">🩸 Mark Funded (Rubicon)</button>` : ''}
             <button class="btn btn-sm btn-ghost" onclick="App.recordPropFee('${a.id}', '${a.prop_firm||''}')">+ Record Fee</button>
           </div>
         </div>`;

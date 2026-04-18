@@ -122,6 +122,36 @@ func (s *Store) RecordPayout(p domain.Payout) error {
 	return nil
 }
 
+func (s *Store) DeletePayout(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i, p := range s.payouts {
+		if p.ID == id {
+			s.payouts = append(s.payouts[:i], s.payouts[i+1:]...)
+			if a, ok := s.accounts[p.AccountID]; ok {
+				a.TotalPayouts -= p.NetAmount
+				if a.TotalPayouts < 0 {
+					a.TotalPayouts = 0
+				}
+				if a.PayoutCount > 0 {
+					a.PayoutCount--
+				}
+				a.UpdatedAt = time.Now()
+			}
+			// Drop linked tax allocations
+			filtered := s.payoutAllocations[:0]
+			for _, al := range s.payoutAllocations {
+				if al.PayoutID != id {
+					filtered = append(filtered, al)
+				}
+			}
+			s.payoutAllocations = filtered
+			return nil
+		}
+	}
+	return fmt.Errorf("payout %q not found", id)
+}
+
 // ─── Budget ─────────────────────────────────────────────────
 
 func (s *Store) GetBudget() *domain.BudgetSummary {

@@ -174,13 +174,13 @@ func (s *Server) handleEngineAccountSnapshot(w http.ResponseWriter, r *http.Requ
 			s.hub.Broadcast(domain.SystemEvent{
 				ID:        fmt.Sprintf("rubicon-%s-%d", acct.ID, time.Now().UnixNano()),
 				Service:   "primarch",
-				Event:     "combine.passed",
+				Event:     "account.funded",
 				Timestamp: time.Now(),
 				Data: map[string]interface{}{
 					"account_id":   acct.ID,
 					"account_name": acct.Name,
 					"prop_firm":    acct.PropFirm,
-					"pass_date":    acct.CombinePassDate,
+					"funded_date":  acct.FundedDate,
 					"source":       "engine_snapshot",
 				},
 			})
