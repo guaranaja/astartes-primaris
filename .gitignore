@@ -46,3 +46,6 @@ Thumbs.db
 
 # Generated protobuf
 gen/
+
+# Design handoff archives (extracted files are in docs/design/)
+*.zip

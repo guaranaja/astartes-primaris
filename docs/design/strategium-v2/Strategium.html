@@ -1,0 +1,438 @@
+<!doctype html>
+<html lang="en" data-density="normal" data-filigree="subtle">
+<head>
+<meta charset="utf-8">
+<title>Strategium — Imperium Command</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&family=Cinzel:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- ══════════ TOPBAR ══════════ -->
+<header id="topbar">
+  <div class="brand">
+    <div class="brand-mark">Ω</div>
+    <div class="brand-text">
+      <span class="brand-name">STRATEGIUM</span>
+      <span class="brand-sub">Astartes Primaris · v2.4</span>
+    </div>
+  </div>
+
+  <nav class="topbar-nav">
+    <button class="nav-btn active" data-view="throne">       <span>Throne</span>       <span class="nav-key">1</span></button>
+    <button class="nav-btn"        data-view="tactical">     <span>Tactical</span>     <span class="nav-key">2</span></button>
+    <button class="nav-btn"        data-view="forge">        <span>Forge</span>        <span class="nav-key">3</span></button>
+    <button class="nav-btn"        data-view="performance">  <span>Performance</span>  <span class="nav-key">4</span></button>
+    <button class="nav-btn"        data-view="council">      <span>Council</span>      <span class="nav-key">5</span></button>
+    <button class="nav-btn"        data-view="prop">         <span>Prop Desk</span>    <span class="nav-key">6</span></button>
+    <button class="nav-btn"        data-view="arsenal">      <span>Arsenal</span>      <span class="nav-key">7</span></button>
+  </nav>
+
+  <div class="topbar-right">
+    <div class="conn"><span class="sdot"></span><span>VOX · 4 BROKERS LINKED</span></div>
+    <div class="clock">
+      <span class="clock-time" id="clock-main">14:32:08</span>
+      <span class="clock-label">NY · MARKET OPEN</span>
+    </div>
+    <button class="icon-btn" id="cmd-btn" title="Command palette (Ctrl+P)">◈</button>
+    <button class="kill-btn" id="kill-btn" title="Kill switch (Ctrl+K)">⊘ KILL</button>
+  </div>
+</header>
+
+<!-- ══════════ TICKER ══════════ -->
+<div id="ticker"><div id="ticker-track"></div></div>
+
+<!-- ══════════ CONTENT ══════════ -->
+<main id="content">
+
+  <!-- ─── THRONE ─── -->
+  <section class="view active" id="view-throne">
+    <div class="kpi-strip" id="kpi-strip"></div>
+
+    <div class="layout-throne">
+      <div class="panel">
+        <div class="panel-header">
+          <div class="panel-title"><span class="rune">⚔</span> Fortresses of the Imperium</div>
+          <div class="panel-meta">4 FORTRESSES · 21 MARINES</div>
+        </div>
+        <div class="panel-body pad-0" style="padding:12px">
+          <div class="fortress-grid" id="fortress-grid"></div>
+        </div>
+      </div>
+
+      <div class="throne-side">
+        <div class="panel">
+          <div class="panel-header">
+            <div class="panel-title"><span class="rune">⌖</span> Imperium Equity</div>
+            <div class="panel-meta">LIVE · AGGREGATE</div>
+          </div>
+          <div class="equity-mini" id="equity-mini"></div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-header">
+            <div class="panel-title"><span class="rune">⛨</span> Risk Matrix</div>
+            <div class="panel-meta">OK · WITHIN LIMITS</div>
+          </div>
+          <div class="risk-matrix" id="risk-matrix"></div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-header">
+            <div class="panel-title"><span class="rune">◈</span> Vox Feed</div>
+            <div class="panel-meta"><span id="event-count">0</span> EVENTS · STREAMING</div>
+          </div>
+          <div class="event-feed" id="event-feed"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── TACTICAL ─── -->
+  <section class="view" id="view-tactical">
+    <div class="layout-tactical">
+      <div class="panel tac-marines">
+        <div class="panel-header">
+          <div class="panel-title"><span class="rune">⚔</span> Marines of the Imperium</div>
+          <div class="btn-group">
+            <button class="btn btn-xs active">ALL</button>
+            <button class="btn btn-xs">LIVE</button>
+            <button class="btn btn-xs">WARM</button>
+            <button class="btn btn-xs">FAILED</button>
+          </div>
+        </div>
+        <div class="marine-list" id="marine-list"></div>
+      </div>
+
+      <div class="panel tac-gauges">
+        <div class="panel-header">
+          <div class="panel-title"><span class="rune">◈</span> Signal Gauges — Warmup Stack</div>
+          <div class="panel-meta">HIGHLIGHT WHEN CLOSE TO FIRE</div>
+        </div>
+        <div class="gauge-grid" id="gauge-grid"></div>
+      </div>
+
+      <div class="panel tac-detail" id="marine-detail"></div>
+
+      <div class="panel tac-tape">
+        <div class="panel-header">
+          <div class="panel-title"><span class="rune">→</span> Time &amp; Sales Tape</div>
+          <div class="panel-meta">ALL MARINES · STREAMING</div>
+        </div>
+        <div class="tape" id="tape"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── FORGE ─── -->
+  <section class="view" id="view-forge">
+    <div class="layout-forge">
+      <div class="panel">
+        <div class="panel-header">
+          <div class="panel-title"><span class="rune">⚒</span> New Forge Job</div>
+          <div class="panel-meta">BACKTEST LAB</div>
+        </div>
+        <div class="forge-form">
+          <div class="form-row">
+            <label>Strategy template</label>
+            <select class="input">
+              <option>ORB 5m — Opening Range Breakout</option>
+              <option>VWAP Reversion — Liquidity pulls</option>
+              <option>Gamma Scalper — Delta hedge</option>
+              <option>Wheel Income — CSP / CC cycle</option>
+              <option>Mean Reversion — Bollinger bands</option>
+            </select>
+          </div>
+          <div class="form-row">
+            <label>Symbols</label>
+            <input class="input" value="ES, NQ, CL, MES" />
+          </div>
+          <div class="form-row two-col">
+            <div><label>Start</label><input class="input" value="2022-01-01" /></div>
+            <div><label>End</label><input class="input" value="2024-12-31" /></div>
+          </div>
+          <div class="form-row two-col">
+            <div><label>Capital</label><input class="input" value="$50,000" /></div>
+            <div><label>Contracts</label><input class="input" value="2" /></div>
+          </div>
+          <div class="form-row two-col">
+            <div><label>Slippage (ticks)</label><input class="input" value="1.0" /></div>
+            <div><label>Commission</label><input class="input" value="$2.80" /></div>
+          </div>
+          <div class="form-row">
+            <label>Compute tier</label>
+            <div class="btn-group" style="width:100%">
+              <button class="btn" style="flex:1">LOCAL</button>
+              <button class="btn active" style="flex:1">CLUSTER-8</button>
+              <button class="btn" style="flex:1">CLUSTER-32</button>
+            </div>
+          </div>
+          <button class="btn btn-gold btn-lg" style="margin-top:6px">⚒ IGNITE FORGE</button>
+        </div>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:var(--gap)">
+        <div class="panel">
+          <div class="panel-header">
+            <div class="panel-title"><span class="rune">⚒</span> Forge Jobs Queue</div>
+            <div class="panel-meta">14 COMPLETED · 2 RUNNING · 1 QUEUED</div>
+          </div>
+          <div style="max-height:320px;overflow-y:auto">
+            <table class="forge-jobs-table">
+              <thead><tr>
+                <th>Job</th><th>Strategy</th><th>Status</th><th>Progress</th><th>Duration</th><th>CAGR</th><th>Sharpe</th><th>Max DD</th>
+              </tr></thead>
+              <tbody id="forge-jobs-body"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="panel" id="forge-detail"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── PERFORMANCE ─── -->
+  <section class="view" id="view-performance">
+    <div class="layout-perf">
+      <div class="panel perf-equity" id="perf-equity"></div>
+
+      <div class="panel perf-stats">
+        <div class="panel-header">
+          <div class="panel-title"><span class="rune">⌖</span> Performance Stats</div>
+        </div>
+        <div class="perf-stats-body" id="perf-stats-body"></div>
+      </div>
+
+      <div class="panel perf-journal">
+        <div class="panel-header">
+          <div class="panel-title"><span class="rune">◈</span> Trade Journal</div>
+          <div class="btn-group">
+            <button class="btn btn-xs active">ALL</button>
+            <button class="btn btn-xs">WINS</button>
+            <button class="btn btn-xs">LOSSES</button>
+            <button class="btn btn-xs">Export CSV</button>
+          </div>
+        </div>
+        <div style="max-height:340px;overflow-y:auto">
+          <table class="data-table">
+            <thead><tr>
+              <th>Time</th><th>Marine</th><th>Signal</th><th>Symbol</th><th>Entry</th><th>Exit</th><th>P&amp;L</th><th>Reason</th><th>Dur</th>
+            </tr></thead>
+            <tbody id="journal-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── COUNCIL ─── -->
+  <section class="view" id="view-council">
+    <div class="panel" style="margin-bottom:var(--gap)">
+      <div class="panel-header">
+        <div class="panel-title"><span class="rune">✚</span> Path to Primarch — Career Phases</div>
+        <div class="panel-meta">PHASE 3 · BATTLE BROTHER</div>
+      </div>
+      <div class="phase-track" id="phase-track"></div>
+    </div>
+
+    <div class="layout-council">
+      <div class="council-col">
+        <div class="panel">
+          <div class="panel-header">
+            <div class="panel-title"><span class="rune">$</span> Accounts Ledger</div>
+            <div class="panel-meta">ALL LINKED</div>
+          </div>
+          <div id="accounts-body"></div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-header">
+            <div class="panel-title"><span class="rune">▼</span> Withdraw Queue</div>
+            <div class="panel-meta">PROP PAYOUTS</div>
+          </div>
+          <div class="withdraw-list" id="withdraw-list"></div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-header">
+            <div class="panel-title"><span class="rune">⛨</span> Allocation by Strategy</div>
+          </div>
+          <div class="alloc-list" id="alloc-list"></div>
+        </div>
+      </div>
+
+      <div class="council-col">
+        <div class="panel">
+          <div class="panel-header">
+            <div class="panel-title"><span class="rune">⌖</span> Business Metrics</div>
+            <div class="panel-meta">LIFETIME · PROP DESK</div>
+          </div>
+          <div class="biz-metrics" id="biz-metrics"></div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-header">
+            <div class="panel-title"><span class="rune">✚</span> Goals &amp; Campaigns</div>
+            <div class="panel-meta">4 ACTIVE</div>
+          </div>
+          <div class="goal-list" id="goal-list"></div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-header">
+            <div class="panel-title"><span class="rune">▼</span> Monthly Expenses</div>
+            <div class="panel-meta">AUTOPAY · BILLS</div>
+          </div>
+          <div class="expense-stats" id="expense-stats"></div>
+          <div class="expense-list" id="expense-list"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── PROP ─── -->
+  <section class="view" id="view-prop">
+    <div class="prop-banner" id="prop-banner"></div>
+
+    <div class="layout-prop">
+      <div class="prop-col">
+        <div class="panel">
+          <div class="panel-header">
+            <div class="panel-title"><span class="rune">$</span> Prop Accounts</div>
+            <div class="panel-meta">APEX · TOPSTEP · MFFU</div>
+          </div>
+          <div class="prop-acct-list" id="prop-acct-list"></div>
+        </div>
+      </div>
+
+      <div class="prop-col">
+        <div class="panel">
+          <div class="panel-header">
+            <div class="panel-title"><span class="rune">⌖</span> Prop Metrics</div>
+          </div>
+          <div class="biz-metrics" id="prop-metrics"></div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-header">
+            <div class="panel-title"><span class="rune">▼</span> Payout History</div>
+            <div class="btn-group">
+              <button class="btn btn-xs active">ALL</button>
+              <button class="btn btn-xs">30D</button>
+              <button class="btn btn-xs">YTD</button>
+            </div>
+          </div>
+          <div style="max-height:420px;overflow-y:auto">
+            <table class="data-table">
+              <thead><tr>
+                <th>Date</th><th>Account</th><th>Gross</th><th>Split</th><th>Net</th><th>Destination</th><th>Status</th>
+              </tr></thead>
+              <tbody id="payout-body"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── ARSENAL ─── -->
+  <section class="view" id="view-arsenal">
+    <div class="layout-arsenal">
+      <div class="panel">
+        <div class="panel-header">
+          <div class="panel-title"><span class="rune">⛨</span> Long Equity Holdings</div>
+          <div class="panel-meta">TERTIUS · VALUE + GROWTH</div>
+        </div>
+        <div style="overflow-x:auto">
+          <table class="data-table">
+            <thead><tr>
+              <th>Symbol</th><th>Shares</th><th>Avg Cost</th><th>Last</th><th>Market Value</th><th>P&amp;L</th><th>Lots (100)</th><th>Notes</th>
+            </tr></thead>
+            <tbody id="holdings-body"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header">
+          <div class="panel-title"><span class="rune">◈</span> Wheel Cycles — Active</div>
+          <div class="panel-meta">COVERED CALLS · CSPs</div>
+        </div>
+        <div class="wheel-cycles" id="wheel-cycles"></div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header">
+          <div class="panel-title"><span class="rune">⚒</span> Wheel Analysis — Today's Recommendations</div>
+          <div class="panel-meta">EXPIRIES 05-03 / 05-17</div>
+        </div>
+        <div style="overflow-x:auto">
+          <table class="data-table">
+            <thead><tr>
+              <th>Symbol</th><th>Recommendation</th><th>Strike</th><th>Expiry</th><th>Premium</th><th>Delta</th><th>POP</th>
+            </tr></thead>
+            <tbody id="analysis-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<!-- ══════════ COMMAND PALETTE ══════════ -->
+<div id="cmdp-backdrop" class="hidden">
+  <div class="cmdp">
+    <div class="cmdp-input-wrap">
+      <input id="cmdp-input" type="text" placeholder="Command marines, navigate, search…" autocomplete="off">
+    </div>
+    <div class="cmdp-results" id="cmdp-results"></div>
+  </div>
+</div>
+
+<!-- ══════════ MODAL ══════════ -->
+<div id="modal-backdrop" class="hidden">
+  <div class="modal">
+    <div class="modal-header" id="modal-title">⊘ CONFIRM</div>
+    <div class="modal-body" id="modal-body"></div>
+  </div>
+</div>
+
+<!-- ══════════ TWEAKS ══════════ -->
+<aside id="tweaks" class="hidden">
+  <div class="tweaks-header">
+    <span>◈ TWEAKS</span>
+    <button class="btn btn-xs" onclick="document.getElementById('tweaks').classList.add('hidden')">×</button>
+  </div>
+  <div class="tweaks-body">
+    <div class="tweak-row">
+      <div class="tweak-label">Density</div>
+      <div class="tweak-options">
+        <button class="btn btn-xs" data-density-btn="compact"   onclick="App.setDensity('compact')">Compact</button>
+        <button class="btn btn-xs" data-density-btn="normal"    onclick="App.setDensity('normal')">Normal</button>
+        <button class="btn btn-xs" data-density-btn="spacious"  onclick="App.setDensity('spacious')">Spacious</button>
+      </div>
+    </div>
+    <div class="tweak-row">
+      <div class="tweak-label">Filigree</div>
+      <div class="tweak-options">
+        <button class="btn btn-xs" data-filigree-btn="off"    onclick="App.setFiligree('off')">Off</button>
+        <button class="btn btn-xs" data-filigree-btn="subtle" onclick="App.setFiligree('subtle')">Subtle</button>
+      </div>
+    </div>
+    <div style="font-size:10px;color:var(--text-3);line-height:1.5;border-top:1px solid var(--border);padding-top:10px;margin-top:4px">
+      <div style="color:var(--gold);font-family:var(--font-display);letter-spacing:2px;margin-bottom:4px">KEYS</div>
+      <div><span style="color:var(--text-1);font-family:var(--font-mono)">1–7</span> · switch views</div>
+      <div><span style="color:var(--text-1);font-family:var(--font-mono)">Ctrl+P</span> · command palette</div>
+      <div><span style="color:var(--text-1);font-family:var(--font-mono)">Ctrl+K</span> · kill switch</div>
+      <div><span style="color:var(--text-1);font-family:var(--font-mono)">Esc</span> · close modals</div>
+    </div>
+  </div>
+</aside>
+
+<script src="data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
