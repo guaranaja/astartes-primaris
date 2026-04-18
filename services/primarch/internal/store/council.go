@@ -87,6 +87,17 @@ func (s *Store) ListPayouts(accountID string) []domain.Payout {
 	return out
 }
 
+func (s *Store) GetPayout(id string) *domain.Payout {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, p := range s.payouts {
+		if p.ID == id {
+			return &p
+		}
+	}
+	return nil
+}
+
 func (s *Store) RecordPayout(p domain.Payout) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

@@ -880,6 +880,18 @@ func (s *PGStore) ListPayouts(accountID string) []domain.Payout {
 	return out
 }
 
+func (s *PGStore) GetPayout(id string) *domain.Payout {
+	var p domain.Payout
+	var note sql.NullString
+	err := s.db.QueryRow(`SELECT id, account_id, gross_amount, net_amount, destination, status, requested_at, completed_at, note FROM payouts WHERE id = $1`, id).
+		Scan(&p.ID, &p.AccountID, &p.GrossAmount, &p.NetAmount, &p.Destination, &p.Status, &p.RequestedAt, &p.CompletedAt, &note)
+	if err != nil {
+		return nil
+	}
+	p.Note = note.String
+	return &p
+}
+
 func (s *PGStore) RecordPayout(p domain.Payout) error {
 	// Get account for split calculation
 	a, err := s.GetAccount(p.AccountID)

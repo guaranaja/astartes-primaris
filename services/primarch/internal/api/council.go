@@ -228,7 +228,14 @@ func (s *Server) handleRecordPayout(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	s.logger.Info("payout recorded", "account", p.AccountID, "gross", p.GrossAmount, "destination", p.Destination)
+
+	// Re-read the payout so we have the store-enriched net_amount and status.
+	enriched := s.store.GetPayout(p.ID)
+	if enriched != nil {
+		p = *enriched
+	}
+
+	s.logger.Info("payout recorded", "account", p.AccountID, "gross", p.GrossAmount, "net", p.NetAmount, "destination", p.Destination)
 
 	// Dual-write: create deposit transaction in Firefly III
 	if s.cfo != nil && s.cfo.Available() {
