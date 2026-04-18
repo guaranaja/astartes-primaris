@@ -394,6 +394,18 @@ func (s *Store) ListAllocationsForMonth(year int, month int) []domain.PayoutAllo
 	return out
 }
 
+func (s *Store) ListAllocationsForPayout(payoutID string) []domain.PayoutAllocation {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var out []domain.PayoutAllocation
+	for _, a := range s.payoutAllocations {
+		if a.PayoutID == payoutID {
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
 // ─── Prop Fees ──────────────────────────────────────────────
 
 func (s *Store) RecordPropFee(f domain.PropFee) error {

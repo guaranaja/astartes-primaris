@@ -33,11 +33,14 @@
       <button class="nav-btn" data-view="council" data-key="5">
         <span class="nav-key">5</span> Council
       </button>
-      <button class="nav-btn" data-view="prop" data-key="6">
-        <span class="nav-key">6</span> Prop Desk
+      <button class="nav-btn" data-view="administratum" data-key="6">
+        <span class="nav-key">6</span> Administratum
       </button>
-      <button class="nav-btn" data-view="arsenal" data-key="7">
-        <span class="nav-key">7</span> Arsenal
+      <button class="nav-btn" data-view="prop" data-key="7">
+        <span class="nav-key">7</span> Prop Desk
+      </button>
+      <button class="nav-btn" data-view="arsenal" data-key="8">
+        <span class="nav-key">8</span> Arsenal
       </button>
     </nav>
     <div class="topbar-right">
@@ -397,63 +400,145 @@
             </div>
           </div>
 
-          <!-- Budget / Allocations -->
+          <!-- Income Allocation (trading → personal flow stays in Council) -->
           <div class="section">
             <div class="section-header"><h2>Income Allocation</h2></div>
             <div id="allocationBars" class="allocation-bars">
               <div class="empty-state">Loading allocations...</div>
             </div>
           </div>
+        </div>
+      </div>
+    </div>
 
-          <!-- Goals & Big Purchases -->
-          <div class="section">
-            <div class="section-header">
-              <h2>Goals & Purchases</h2>
-              <button class="btn btn-sm" onclick="App.addGoal()">+ Add Goal</button>
+    <!-- ═══ VIEW: Administratum ══════════════════════════════ -->
+    <div class="view" id="view-administratum">
+
+      <div class="admin-header">
+        <div class="admin-title">
+          <h2>Administratum</h2>
+          <span class="admin-subtitle">Personal finance · Firefly III · Monarch</span>
+        </div>
+        <nav class="sub-nav" id="adminSubNav">
+          <button class="sub-nav-btn active" data-subview="overview">Overview</button>
+          <button class="sub-nav-btn" data-subview="accounts">Accounts</button>
+          <button class="sub-nav-btn" data-subview="budgets">Budgets</button>
+          <button class="sub-nav-btn" data-subview="goals">Goals</button>
+          <button class="sub-nav-btn" data-subview="bills">Bills</button>
+        </nav>
+      </div>
+
+      <!-- ── Sub-view: Overview ── -->
+      <div class="sub-view active" id="sub-overview">
+        <div class="section">
+          <div class="section-header">
+            <h2>This Month</h2>
+            <span class="badge" id="adminMonthLabel">—</span>
+          </div>
+          <div class="stats-grid">
+            <div class="stat">
+              <span class="stat-label">Net Worth</span>
+              <span class="stat-value" id="adminNetWorth">$0</span>
             </div>
-            <div id="goalList" class="goal-list">
-              <div class="empty-state">No goals yet — add your first target</div>
+            <div class="stat">
+              <span class="stat-label">Liquid</span>
+              <span class="stat-value" id="adminLiquid">$0</span>
+            </div>
+            <div class="stat">
+              <span class="stat-label">Trading Value</span>
+              <span class="stat-value" id="adminTradingValue" style="color:var(--gold)">$0</span>
+            </div>
+            <div class="stat">
+              <span class="stat-label">Monthly Income</span>
+              <span class="stat-value" id="adminMonthlyIncome" style="color:var(--green)">$0</span>
+            </div>
+            <div class="stat">
+              <span class="stat-label">Monthly Expenses</span>
+              <span class="stat-value" id="adminMonthlyExpenses" style="color:var(--red)">$0</span>
+            </div>
+            <div class="stat">
+              <span class="stat-label">Net Cashflow</span>
+              <span class="stat-value" id="adminMonthlyNet">$0</span>
+            </div>
+            <div class="stat">
+              <span class="stat-label">Trading Coverage</span>
+              <span class="stat-value" id="adminCoverage" style="color:var(--gold)">0%</span>
+            </div>
+            <div class="stat">
+              <span class="stat-label">Data Sources</span>
+              <span class="stat-value" id="adminSources" style="font-size:13px">—</span>
             </div>
           </div>
+          <div id="adminCoverageBar" style="margin-top:12px"></div>
+        </div>
+      </div>
 
-          <!-- Unified Budgets (Monarch + CFO Engine) -->
-          <div class="section">
-            <div class="section-header"><h2>Budgets</h2></div>
-            <div id="unifiedBudgetList">
-              <div class="empty-state">Loading budgets...</div>
-            </div>
+      <!-- ── Sub-view: Accounts ── -->
+      <div class="sub-view" id="sub-accounts">
+        <div class="section">
+          <div class="section-header">
+            <h2>Accounts</h2>
+            <span class="badge" id="adminAccountCount">0</span>
           </div>
+          <div id="adminAccountList" class="account-list">
+            <div class="empty-state">Loading accounts...</div>
+          </div>
+        </div>
+      </div>
 
-          <!-- Billing & Expenses -->
-          <div class="section">
-            <div class="section-header">
-              <h2>Bills & Expenses</h2>
-              <button class="btn btn-sm" onclick="App.addExpense()">+ Add Expense</button>
-            </div>
-            <div class="billing-summary" id="billingSummary">
-              <div class="billing-header">
-                <div class="billing-stat">
-                  <span class="billing-stat-label">Life Bills</span>
-                  <span class="billing-stat-value" id="billingLife">$0</span>
-                </div>
-                <div class="billing-stat">
-                  <span class="billing-stat-label">System Costs</span>
-                  <span class="billing-stat-value" id="billingSystem">$0</span>
-                </div>
-                <div class="billing-stat">
-                  <span class="billing-stat-label">Total Monthly</span>
-                  <span class="billing-stat-value" id="billingTotal">$0</span>
-                </div>
-                <div class="billing-stat">
-                  <span class="billing-stat-label">Trading Coverage</span>
-                  <span class="billing-stat-value" id="billingCoverage" style="color:var(--gold)">0%</span>
-                </div>
+      <!-- ── Sub-view: Budgets ── -->
+      <div class="sub-view" id="sub-budgets">
+        <div class="section">
+          <div class="section-header"><h2>Budgets</h2></div>
+          <div id="unifiedBudgetList">
+            <div class="empty-state">Loading budgets...</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Sub-view: Goals ── -->
+      <div class="sub-view" id="sub-goals">
+        <div class="section">
+          <div class="section-header">
+            <h2>Goals & Purchases</h2>
+            <button class="btn btn-sm" onclick="App.addGoal()">+ Add Goal</button>
+          </div>
+          <div id="goalList" class="goal-list">
+            <div class="empty-state">No goals yet — add your first target</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Sub-view: Bills ── -->
+      <div class="sub-view" id="sub-bills">
+        <div class="section">
+          <div class="section-header">
+            <h2>Bills & Expenses</h2>
+            <button class="btn btn-sm" onclick="App.addExpense()">+ Add Expense</button>
+          </div>
+          <div class="billing-summary" id="billingSummary">
+            <div class="billing-header">
+              <div class="billing-stat">
+                <span class="billing-stat-label">Life Bills</span>
+                <span class="billing-stat-value" id="billingLife">$0</span>
               </div>
-              <div id="billingCoverageBar" style="margin-top:8px"></div>
+              <div class="billing-stat">
+                <span class="billing-stat-label">System Costs</span>
+                <span class="billing-stat-value" id="billingSystem">$0</span>
+              </div>
+              <div class="billing-stat">
+                <span class="billing-stat-label">Total Monthly</span>
+                <span class="billing-stat-value" id="billingTotal">$0</span>
+              </div>
+              <div class="billing-stat">
+                <span class="billing-stat-label">Trading Coverage</span>
+                <span class="billing-stat-value" id="billingCoverage" style="color:var(--gold)">0%</span>
+              </div>
             </div>
-            <div id="expenseList" class="expense-list">
-              <div class="empty-state">Loading bills...</div>
-            </div>
+            <div id="billingCoverageBar" style="margin-top:8px"></div>
+          </div>
+          <div id="expenseList" class="expense-list">
+            <div class="empty-state">Loading bills...</div>
           </div>
         </div>
       </div>

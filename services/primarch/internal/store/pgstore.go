@@ -1497,6 +1497,29 @@ func (s *PGStore) ListAllocationsForMonth(year int, month int) []domain.PayoutAl
 	return out
 }
 
+func (s *PGStore) ListAllocationsForPayout(payoutID string) []domain.PayoutAllocation {
+	rows, err := s.db.Query(`SELECT id, payout_id, category, amount, note, created_at
+		FROM payout_allocations WHERE payout_id = $1
+		ORDER BY created_at ASC`, payoutID)
+	if err != nil {
+		s.logger.Error("list allocations for payout", "error", err)
+		return nil
+	}
+	defer rows.Close()
+	var out []domain.PayoutAllocation
+	for rows.Next() {
+		var a domain.PayoutAllocation
+		var pid sql.NullString
+		if err := rows.Scan(&a.ID, &pid, &a.Category, &a.Amount, &a.Note, &a.CreatedAt); err != nil {
+			s.logger.Error("scan allocation", "error", err)
+			continue
+		}
+		a.PayoutID = pid.String
+		out = append(out, a)
+	}
+	return out
+}
+
 // ─── Prop Fees ───────────────────────────────────────────
 
 func (s *PGStore) RecordPropFee(f domain.PropFee) error {

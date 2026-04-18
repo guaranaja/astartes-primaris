@@ -33,6 +33,7 @@
   --blue-dim: #1e40af;
   --amber: #fbbf24;
   --purple: #a78bfa;
+  --accent: #a78bfa;
 
   /* Signal warmup gradient */
   --warmup-cold: #101a3a;
@@ -1813,3 +1814,257 @@ select.input option { background: var(--bg-1); }
   #topbar { flex-wrap: wrap; height: auto; padding: 8px; gap: 8px; }
   .topbar-nav { overflow-x: auto; }
 }
+
+/* ─── Administratum ─────────────────────────────────────── */
+.admin-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+.admin-title h2 {
+  font-family: var(--font-display, 'Cinzel', serif);
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: 2px;
+  color: var(--gold);
+  margin: 0;
+  text-transform: uppercase;
+}
+.admin-subtitle {
+  display: block;
+  font-size: 10px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--text-3);
+  margin-top: 2px;
+}
+.sub-nav {
+  display: flex;
+  gap: 2px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 3px;
+  flex-wrap: wrap;
+}
+.sub-nav-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-2);
+  padding: 6px 14px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  cursor: pointer;
+  border-radius: 3px;
+  transition: background 0.15s, color 0.15s;
+}
+.sub-nav-btn:hover {
+  color: var(--text-0);
+  background: rgba(201, 168, 76, 0.08);
+}
+.sub-nav-btn.active {
+  background: var(--gold);
+  color: var(--bg-0);
+}
+.sub-view { display: none; }
+.sub-view.active { display: block; }
+
+/* ─── Budget panel (Monarch-style) ──────────────────────── */
+.budget-headline {
+  background: rgba(201, 168, 76, 0.04);
+  border: 1px solid var(--gold-dim);
+  border-radius: 4px;
+  padding: 14px 16px;
+  margin-bottom: 16px;
+}
+.budget-headline-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.budget-headline-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: var(--text-3);
+  margin-bottom: 4px;
+}
+.budget-headline-value {
+  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+  font-size: 22px;
+  font-weight: 600;
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+.budget-headline-meta {
+  font-size: 11px;
+  margin-top: 4px;
+}
+.budget-group {
+  margin-bottom: 18px;
+}
+.budget-group-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 10px;
+  background: rgba(255, 255, 255, 0.02);
+  margin-bottom: 6px;
+  flex-wrap: wrap;
+}
+.budget-group-title {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.budget-group-rollup {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.budget-row {
+  padding: 8px 10px 10px;
+  border-bottom: 1px solid var(--border);
+}
+.budget-row:last-child {
+  border-bottom: none;
+}
+.budget-row-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+  gap: 8px;
+}
+.budget-row-name {
+  font-size: 12px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.budget-row-amt {
+  font-size: 11px;
+  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+}
+.budget-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+/* ─── Payout split (delegate take-home) ─────────────────── */
+.split-section {
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: rgba(201, 168, 76, 0.02);
+  padding: 12px;
+}
+.split-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+.split-title {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--gold);
+  font-weight: 700;
+}
+.split-actions {
+  display: flex;
+  gap: 6px;
+}
+.split-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.split-row {
+  display: grid;
+  grid-template-columns: 1fr 120px;
+  gap: 10px;
+  align-items: center;
+}
+.split-label {
+  font-size: 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.split-pct {
+  font-size: 10px;
+  color: var(--text-3);
+  font-family: var(--font-mono, monospace);
+}
+.split-input {
+  text-align: right;
+  font-family: var(--font-mono, monospace);
+  padding: 4px 8px !important;
+  font-size: 12px !important;
+}
+.split-footer {
+  display: flex;
+  justify-content: space-between;
+  padding-top: 8px;
+  margin-top: 10px;
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+  font-family: var(--font-mono, monospace);
+}
+
+/* ─── Payout list (with allocation status) ──────────────── */
+.payout-item {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+}
+.payout-item:last-child { border-bottom: none; }
+.payout-row {
+  display: grid;
+  grid-template-columns: 90px 1fr 100px 1fr;
+  gap: 10px;
+  align-items: center;
+  font-size: 12px;
+}
+.payout-alloc-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 4px;
+  font-size: 10px;
+}
+.payout-alloc-status {
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  font-weight: 600;
+}
+.payout-alloc-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+.alloc-tag {
+  background: rgba(201, 168, 76, 0.1);
+  border: 1px solid var(--gold-dim);
+  color: var(--text-1);
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-family: var(--font-mono, monospace);
+}
+

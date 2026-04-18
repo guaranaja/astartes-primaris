@@ -211,9 +211,32 @@ func (s *Server) handleDeleteAllAccounts(w http.ResponseWriter, r *http.Request)
 
 // ─── Payouts ────────────────────────────────────────────────
 
+// PayoutWithAllocations enriches a Payout with its allocation split for list views.
+type PayoutWithAllocations struct {
+	domain.Payout
+	Allocations []domain.PayoutAllocation `json:"allocations,omitempty"`
+	Allocated   float64                   `json:"allocated"`
+	Unallocated float64                   `json:"unallocated"`
+}
+
 func (s *Server) handleListPayouts(w http.ResponseWriter, r *http.Request) {
 	accountID := r.URL.Query().Get("account_id")
-	writeJSON(w, http.StatusOK, s.store.ListPayouts(accountID))
+	payouts := s.store.ListPayouts(accountID)
+	out := make([]PayoutWithAllocations, len(payouts))
+	for i, p := range payouts {
+		allocs := s.store.ListAllocationsForPayout(p.ID)
+		var total float64
+		for _, a := range allocs {
+			total += a.Amount
+		}
+		out[i] = PayoutWithAllocations{
+			Payout:      p,
+			Allocations: allocs,
+			Allocated:   total,
+			Unallocated: p.NetAmount - total,
+		}
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 func (s *Server) handleRecordPayout(w http.ResponseWriter, r *http.Request) {

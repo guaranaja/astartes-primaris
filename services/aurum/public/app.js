@@ -67,6 +67,7 @@ const App = {
     this.pollStatus();
     this.loadData();
     this.loadCouncil();
+    this.loadAdministratum();
     this.loadHoldings();
     this.loadWheelCycles();
   },
@@ -850,6 +851,134 @@ const App = {
     this.renderPropDesk();
   },
 
+  async loadAdministratum() {
+    try {
+      const [overview, accounts, status] = await Promise.all([
+        this.api('/council/finance/overview').catch(() => null),
+        this.api('/council/finance/accounts').catch(() => null),
+        this.api('/council/finance/status').catch(() => null),
+      ]);
+      this.state.financeOverview = overview;
+      this.state.financeAccounts = accounts || [];
+      this.state.financeStatus = status;
+      this.renderAdminOverview();
+      this.renderAdminAccounts();
+    } catch (e) {
+      // CFO integration may be unavailable
+    }
+  },
+
+  renderAdminOverview() {
+    const o = this.state.financeOverview;
+    const status = this.state.financeStatus || {};
+    const billing = this.state.billing || {};
+    const now = new Date();
+    const monthLabel = now.toLocaleString('en-US', { month: 'long', year: 'numeric' });
+    setText('adminMonthLabel', monthLabel.toUpperCase());
+
+    if (!o) {
+      ['adminNetWorth','adminLiquid','adminTradingValue','adminMonthlyIncome','adminMonthlyExpenses','adminMonthlyNet','adminCoverage'].forEach(id => setText(id, '—'));
+      setText('adminSources', 'CFO offline');
+      const bar = document.getElementById('adminCoverageBar');
+      if (bar) bar.innerHTML = '<div class="empty-state">Connect Firefly III + Monarch to see your month at a glance</div>';
+      return;
+    }
+
+    const income = (o.personal_income || 0) + (o.family_income || 0);
+    const expenses = (o.personal_expenses || 0) + (o.family_expenses || 0);
+    const net = income - expenses;
+
+    // Liquid = cash-like accounts from personal + family sources
+    const liquidTypes = new Set(['checking', 'savings', 'cash', 'defaultAsset', 'asset', 'depository']);
+    const liquid = (o.accounts || [])
+      .filter(a => a.source !== 'trading' && liquidTypes.has((a.type || '').toLowerCase()))
+      .reduce((s, a) => s + (a.balance || 0), 0);
+
+    setText('adminNetWorth', '$' + fmt(o.total_net_worth || 0));
+    setText('adminLiquid', '$' + fmt(liquid));
+    setText('adminTradingValue', '$' + fmt(o.trading_value || 0));
+    setText('adminMonthlyIncome', '$' + fmt(income));
+    setText('adminMonthlyExpenses', '$' + fmt(expenses));
+
+    const netEl = document.getElementById('adminMonthlyNet');
+    if (netEl) {
+      netEl.textContent = (net >= 0 ? '+$' : '-$') + fmt(Math.abs(net));
+      netEl.style.color = net >= 0 ? 'var(--green)' : 'var(--red)';
+    }
+
+    // Coverage: prefer Council's computed trading_coverage (trading income / life bills)
+    const coverage = Math.round((billing.trading_coverage || 0) * 100);
+    setText('adminCoverage', coverage + '%');
+
+    const srcParts = [];
+    if (status.cfo_engine === 'connected') srcParts.push('Firefly');
+    if (status.monarch === 'connected') srcParts.push('Monarch');
+    srcParts.push('Trading');
+    setText('adminSources', srcParts.join(' · '));
+
+    const bar = document.getElementById('adminCoverageBar');
+    if (bar) {
+      if ((billing.life_expenses || 0) > 0) {
+        const coverColor = coverage >= 100 ? 'var(--green)' : coverage >= 50 ? 'var(--gold)' : 'var(--red)';
+        bar.innerHTML = `
+          <div style="font-size:10px;color:var(--text-3);margin-bottom:4px;text-transform:uppercase;letter-spacing:0.8px">Bot funding real life</div>
+          <div class="progress-bar"><div class="progress-fill" style="width:${Math.min(coverage,100)}%;background:${coverColor}"></div></div>`;
+      } else {
+        bar.innerHTML = '';
+      }
+    }
+  },
+
+  renderAdminAccounts() {
+    const el = document.getElementById('adminAccountList');
+    if (!el) return;
+    const accounts = this.state.financeAccounts || [];
+    setText('adminAccountCount', String(accounts.length));
+    if (!accounts.length) {
+      el.innerHTML = '<div class="empty-state">No accounts — connect Firefly III or Monarch</div>';
+      return;
+    }
+
+    const sourceMeta = {
+      personal: { label: 'Personal (Firefly)', color: 'var(--blue)' },
+      family:   { label: 'Family (Monarch)',   color: 'var(--accent)' },
+      trading:  { label: 'Trading',            color: 'var(--gold)' },
+    };
+
+    const groups = {};
+    for (const a of accounts) {
+      const key = a.source || 'other';
+      (groups[key] = groups[key] || []).push(a);
+    }
+
+    const order = ['personal', 'family', 'trading', 'other'];
+    const sortedKeys = Object.keys(groups).sort((a, b) => order.indexOf(a) - order.indexOf(b));
+
+    el.innerHTML = sortedKeys.map(key => {
+      const meta = sourceMeta[key] || { label: key, color: 'var(--text-2)' };
+      const items = groups[key];
+      const total = items.reduce((s, a) => s + (a.balance || 0), 0);
+      return `
+        <div class="account-group">
+          <div class="account-group-header" style="border-left:3px solid ${meta.color}">
+            <span style="color:${meta.color};font-size:10px;text-transform:uppercase;letter-spacing:1px;font-weight:700">${meta.label}</span>
+            <span style="font-size:11px;color:var(--text-3)">${items.length} accounts · $${fmt(total)}</span>
+          </div>
+          ${items.map(a => {
+            const isNeg = (a.balance || 0) < 0;
+            const amtColor = isNeg ? 'var(--red)' : 'var(--text-0)';
+            return `
+              <div class="expense-item">
+                <span class="expense-name">${esc(a.name || '')}</span>
+                <span class="expense-category">${esc(a.type || '')}</span>
+                <span class="expense-amount" style="color:${amtColor}">${isNeg ? '-$' : '$'}${fmt(Math.abs(a.balance || 0))}</span>
+                <span class="expense-freq">${esc(a.currency || 'USD')}</span>
+              </div>`;
+          }).join('')}
+        </div>`;
+    }).join('');
+  },
+
   renderPhaseTracker() {
     const rm = this.state.roadmap;
     if (!rm) return;
@@ -1034,14 +1163,30 @@ const App = {
       el.innerHTML = '<div class="empty-state">No payouts recorded yet</div>';
       return;
     }
-    el.innerHTML = this.state.payouts.map(p => `
-      <div class="payout-item">
-        <span class="payout-date">${formatDate(p.requested_at)}</span>
-        <span class="payout-account">${esc(p.account_id)}</span>
-        <span class="payout-amount">+$${fmt(p.net_amount)}</span>
-        <span class="payout-dest">→ ${p.destination}</span>
-      </div>
-    `).join('');
+    el.innerHTML = this.state.payouts.map(p => {
+      const allocated = p.allocated || 0;
+      const unallocated = Math.max(0, p.unallocated !== undefined ? p.unallocated : p.net_amount - allocated);
+      const fullyAllocated = unallocated < 0.5 && allocated > 0;
+      const allocTags = (p.allocations || []).map(a =>
+        `<span class="alloc-tag">${esc(this.splitCategoryLabel(a.category))} $${fmt(a.amount)}</span>`
+      ).join('');
+      return `
+        <div class="payout-item">
+          <div class="payout-row">
+            <span class="payout-date">${formatDate(p.requested_at)}</span>
+            <span class="payout-account">${esc(p.account_id)}</span>
+            <span class="payout-amount">+$${fmt(p.net_amount)}</span>
+            <span class="payout-dest">→ ${esc(p.destination || '')}</span>
+          </div>
+          <div class="payout-alloc-row">
+            <span class="payout-alloc-status" style="color:${fullyAllocated ? 'var(--green)' : unallocated > 0 ? 'var(--gold)' : 'var(--text-3)'}">
+              ${fullyAllocated ? '✓ Fully allocated' : `Allocated $${fmt(allocated)} · $${fmt(unallocated)} unallocated`}
+            </span>
+            ${unallocated > 0.5 ? `<button class="btn btn-sm" onclick="App.allocatePayout('${esc(p.id)}')">Allocate</button>` : ''}
+          </div>
+          ${allocTags ? `<div class="payout-alloc-tags">${allocTags}</div>` : ''}
+        </div>`;
+    }).join('');
   },
 
   renderBusinessMetrics() {
@@ -1238,38 +1383,107 @@ const App = {
       return;
     }
 
-    const sourceLabel = { personal: 'CFO', family: 'Monarch' };
-    const sourceColor = { personal: 'var(--blue)', family: 'var(--accent)' };
-
-    // Group by source
     const personal = budgets.filter(b => b.source === 'personal');
     const family = budgets.filter(b => b.source === 'family');
     const groups = [];
     if (family.length) groups.push({ label: 'Family (Monarch)', color: 'var(--accent)', items: family });
-    if (personal.length) groups.push({ label: 'Personal (CFO)', color: 'var(--blue)', items: personal });
+    if (personal.length) groups.push({ label: 'Personal (Firefly)', color: 'var(--blue)', items: personal });
 
-    el.innerHTML = groups.map(g => `
-      <div class="budget-group">
-        <div class="account-group-header" style="border-left:3px solid ${g.color}">
-          <span style="color:${g.color};font-size:10px;text-transform:uppercase;letter-spacing:1px;font-weight:700">${g.label}</span>
-          <span style="font-size:11px;color:var(--text-3)">${g.items.length} categories</span>
+    // Headline rollup
+    const totBudgeted = budgets.reduce((s, b) => s + (b.budgeted || 0), 0);
+    const totSpent = budgets.reduce((s, b) => s + (b.spent || 0), 0);
+    const totRemaining = totBudgeted - totSpent;
+    const totPct = totBudgeted > 0 ? (totSpent / totBudgeted) * 100 : 0;
+
+    // Month progress — how far through the month we are
+    const now = new Date();
+    const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+    const monthProgress = (now.getDate() / daysInMonth) * 100;
+    const pace = totPct - monthProgress; // positive = spending faster than calendar
+
+    const headlineColor = totPct >= 100 ? 'var(--red)' : totPct >= 80 ? 'var(--gold)' : 'var(--green)';
+    const paceLabel = pace > 5 ? `ahead of pace by ${Math.round(pace)}pp`
+                   : pace < -5 ? `behind pace by ${Math.round(-pace)}pp`
+                   : 'on pace';
+
+    const renderBudgetRow = (b) => {
+      const pct = b.budgeted > 0 ? (b.spent / b.budgeted) * 100 : 0;
+      const cappedPct = Math.min(pct, 100);
+      const remaining = (b.budgeted || 0) - (b.spent || 0);
+      const over = remaining < 0;
+      const barColor = over ? 'var(--red)' : pct >= 80 ? 'var(--gold)' : 'var(--green)';
+      const statusDot = over ? 'var(--red)' : pct >= 80 ? 'var(--gold)' : 'var(--green)';
+      return `
+        <div class="budget-row">
+          <div class="budget-row-top">
+            <span class="budget-row-name">
+              <span class="budget-status-dot" style="background:${statusDot}"></span>
+              ${esc(b.category)}
+            </span>
+            <span class="budget-row-amt" style="color:${over ? 'var(--red)' : 'var(--text-2)'}">
+              $${fmt(b.spent)} <span style="color:var(--text-3)">/ $${fmt(b.budgeted)}</span>
+              ${over ? ` <span style="color:var(--red);font-weight:700">+$${fmt(-remaining)}</span>` : ''}
+            </span>
+          </div>
+          <div class="progress-bar"><div class="progress-fill" style="width:${cappedPct}%;background:${barColor}"></div></div>
+        </div>`;
+    };
+
+    const renderGroup = (g) => {
+      const gBudgeted = g.items.reduce((s, b) => s + (b.budgeted || 0), 0);
+      const gSpent = g.items.reduce((s, b) => s + (b.spent || 0), 0);
+      const gPct = gBudgeted > 0 ? (gSpent / gBudgeted) * 100 : 0;
+      const gCapped = Math.min(gPct, 100);
+      const gColor = gPct >= 100 ? 'var(--red)' : gPct >= 80 ? 'var(--gold)' : 'var(--green)';
+      return `
+        <div class="budget-group">
+          <div class="budget-group-header" style="border-left:3px solid ${g.color}">
+            <div class="budget-group-title">
+              <span style="color:${g.color};font-size:10px;text-transform:uppercase;letter-spacing:1px;font-weight:700">${g.label}</span>
+              <span style="font-size:10px;color:var(--text-3)">${g.items.length} categories</span>
+            </div>
+            <div class="budget-group-rollup">
+              <span style="font-family:var(--font-mono);font-size:12px;color:var(--text-0)">
+                $${fmt(gSpent)} <span style="color:var(--text-3)">of $${fmt(gBudgeted)}</span>
+              </span>
+              <div class="progress-bar" style="width:120px"><div class="progress-fill" style="width:${gCapped}%;background:${gColor}"></div></div>
+            </div>
+          </div>
+          ${g.items.map(renderBudgetRow).join('')}
+        </div>`;
+    };
+
+    el.innerHTML = `
+      <div class="budget-headline">
+        <div class="budget-headline-row">
+          <div class="budget-headline-left">
+            <div class="budget-headline-label">This Month</div>
+            <div class="budget-headline-value">
+              <span style="color:${headlineColor}">$${fmt(totSpent)}</span>
+              <span style="color:var(--text-3)">of $${fmt(totBudgeted)}</span>
+            </div>
+            <div class="budget-headline-meta">
+              ${totRemaining >= 0
+                ? `<span style="color:var(--green)">$${fmt(totRemaining)} remaining</span>`
+                : `<span style="color:var(--red)">$${fmt(-totRemaining)} over</span>`}
+              <span style="color:var(--text-3)"> · ${paceLabel}</span>
+            </div>
+          </div>
+          <div class="budget-headline-right">
+            <div style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:1px;text-align:right">
+              ${Math.round(totPct)}% spent · ${Math.round(monthProgress)}% through month
+            </div>
+            <div class="progress-bar" style="width:180px;margin-top:6px">
+              <div class="progress-fill" style="width:${Math.min(totPct,100)}%;background:${headlineColor}"></div>
+            </div>
+            <div class="progress-bar" style="width:180px;margin-top:3px;height:3px;opacity:0.6">
+              <div class="progress-fill" style="width:${monthProgress}%;background:var(--text-3)"></div>
+            </div>
+          </div>
         </div>
-        ${g.items.map(b => {
-          const pct = b.budgeted > 0 ? Math.min((b.spent / b.budgeted) * 100, 100) : 0;
-          const remaining = b.budgeted - b.spent;
-          const overBudget = remaining < 0;
-          const barColor = overBudget ? 'var(--red)' : pct > 80 ? 'var(--gold)' : 'var(--green)';
-          return `
-            <div class="budget-row">
-              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px">
-                <span style="font-size:12px;font-weight:600">${esc(b.category)}</span>
-                <span style="font-size:11px;font-family:var(--font-mono);color:${overBudget ? 'var(--red)' : 'var(--text-2)'}">$${fmt(b.spent)} / $${fmt(b.budgeted)}</span>
-              </div>
-              <div class="progress-bar"><div class="progress-fill" style="width:${pct}%;background:${barColor}"></div></div>
-            </div>`;
-        }).join('')}
       </div>
-    `).join('');
+      ${groups.map(renderGroup).join('')}
+    `;
   },
 
   addGoal() {
@@ -1677,6 +1891,23 @@ const App = {
         <div id="payoutEstimate" style="padding:10px;border:1px solid var(--border);border-radius:6px;background:var(--bg-2);font-size:12px;line-height:1.6">
           Fill in gross amount to see split &amp; tax reserve.
         </div>
+
+        <div class="split-section">
+          <div class="split-header">
+            <span class="split-title">Delegate take-home</span>
+            <div class="split-actions">
+              <button type="button" class="btn btn-sm" onclick="App.seedPayoutSplit()">Apply rules</button>
+              <button type="button" class="btn btn-sm" onclick="App.clearPayoutSplit()">Clear</button>
+            </div>
+          </div>
+          <div id="splitRows" class="split-rows"></div>
+          <div class="split-footer">
+            <span id="splitAllocated">Allocated: $0</span>
+            <span id="splitRemaining" style="color:var(--gold);font-weight:600">Remaining: $0</span>
+          </div>
+          <div style="color:var(--text-3);font-size:10px;margin-top:4px">Ledger only — no money moves. Leaving some unallocated is fine.</div>
+        </div>
+
         <div class="form-row">
           <label>Destination (Firefly asset account)</label>
           <select id="payoutDest" class="input">
@@ -1690,7 +1921,126 @@ const App = {
         <button type="submit" class="btn btn-primary btn-lg">Record Payout</button>
       </form>
     `);
+    this.renderSplitRows();
     this.updatePayoutEstimate();
+  },
+
+  // Split categories — sourced from user's allocation rules, excluding 'taxes'
+  // (auto-reserved on prop payouts). Falls back to sensible defaults.
+  getSplitCategories() {
+    const rules = (this.state.allocations || []).filter(a => a.category !== 'taxes');
+    if (rules.length) {
+      return rules.map(r => ({ category: r.category, pct: r.percentage }));
+    }
+    return [
+      { category: 'personal_bills', pct: 30 },
+      { category: 'family_budget',  pct: 30 },
+      { category: 'investments',    pct: 15 },
+      { category: 'savings',        pct: 15 },
+      { category: 'discretionary',  pct: 10 },
+    ];
+  },
+
+  splitCategoryLabel(key) {
+    const labels = {
+      personal_bills: 'Personal Bills',
+      family_budget:  'Family Budget',
+      investments:    'Investments',
+      savings:        'Savings',
+      discretionary:  'Discretionary',
+      bills:          'Bills',
+      personal:       'Personal',
+      trading_capital:'Trading Capital',
+      family:         'Family',
+    };
+    return labels[key] || key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  },
+
+  renderSplitRows() {
+    const el = document.getElementById('splitRows');
+    if (!el) return;
+    const cats = this.getSplitCategories();
+    el.innerHTML = cats.map(c => `
+      <div class="split-row">
+        <label class="split-label">${esc(this.splitCategoryLabel(c.category))}
+          <span class="split-pct">${c.pct}%</span>
+        </label>
+        <input type="number" class="input split-input" data-category="${esc(c.category)}" data-pct="${c.pct}"
+          placeholder="0" min="0" step="1" oninput="App.updateSplitFooter()">
+      </div>
+    `).join('');
+  },
+
+  getTakeHome() {
+    const acctSel = document.getElementById('payoutAcct');
+    const grossEl = document.getElementById('payoutGross');
+    const netOverrideEl = document.getElementById('payoutNet');
+    if (!acctSel || !grossEl) return 0;
+    const opt = acctSel.options[acctSel.selectedIndex];
+    const isProp = opt && opt.dataset.type === 'prop';
+    const split = parseFloat(opt && opt.dataset.split) || 0.9;
+    const gross = parseFloat(grossEl.value) || 0;
+    const netOverride = parseFloat(netOverrideEl && netOverrideEl.value);
+    const net = Number.isFinite(netOverride) && netOverride > 0 ? netOverride : gross * split;
+    const taxPct = this.state.taxWithholdPct || 0.30;
+    const taxReserve = isProp ? net * taxPct : 0;
+    return Math.max(0, net - taxReserve);
+  },
+
+  updateSplitFooter() {
+    const takeHome = this.getTakeHome();
+    const inputs = document.querySelectorAll('#splitRows .split-input');
+    let allocated = 0;
+    inputs.forEach(i => { allocated += parseFloat(i.value) || 0; });
+    const remaining = takeHome - allocated;
+    const allocEl = document.getElementById('splitAllocated');
+    const remEl = document.getElementById('splitRemaining');
+    if (allocEl) allocEl.textContent = `Allocated: $${fmt(allocated)} of $${fmt(takeHome)}`;
+    if (remEl) {
+      if (takeHome <= 0) {
+        remEl.textContent = 'Enter gross to begin';
+        remEl.style.color = 'var(--text-3)';
+      } else if (remaining < -0.5) {
+        remEl.textContent = `Over by $${fmt(-remaining)}`;
+        remEl.style.color = 'var(--red)';
+      } else if (remaining > 0.5) {
+        remEl.textContent = `Remaining: $${fmt(remaining)}`;
+        remEl.style.color = 'var(--gold)';
+      } else {
+        remEl.textContent = 'Fully allocated ✓';
+        remEl.style.color = 'var(--green)';
+      }
+    }
+  },
+
+  seedPayoutSplit() {
+    const takeHome = this.getTakeHome();
+    if (takeHome <= 0) {
+      this.flash('Enter gross amount first', 'info');
+      return;
+    }
+    const inputs = document.querySelectorAll('#splitRows .split-input');
+    inputs.forEach(i => {
+      const pct = parseFloat(i.dataset.pct) || 0;
+      i.value = (takeHome * pct / 100).toFixed(2);
+    });
+    this.updateSplitFooter();
+  },
+
+  clearPayoutSplit() {
+    document.querySelectorAll('#splitRows .split-input').forEach(i => { i.value = ''; });
+    this.updateSplitFooter();
+  },
+
+  collectSplits() {
+    const out = [];
+    document.querySelectorAll('#splitRows .split-input').forEach(i => {
+      const amt = parseFloat(i.value);
+      if (Number.isFinite(amt) && amt > 0) {
+        out.push({ category: i.dataset.category, amount: amt });
+      }
+    });
+    return out;
   },
 
   updatePayoutEstimate() {
@@ -1715,6 +2065,7 @@ const App = {
       <div style="display:flex;justify-content:space-between;font-weight:600;border-top:1px solid var(--border);margin-top:6px;padding-top:6px"><span>Take-home</span><span>$${fmt(takeHome)}</span></div>
       ${isProp ? '<div style="color:var(--text-3);font-size:11px;margin-top:4px">Tax reserve is a ledger allocation, not a transfer. Adjust via TRADING_TAX_WITHHOLD_PCT.</div>' : ''}
     `;
+    this.updateSplitFooter();
   },
 
   async submitPayout(e) {
@@ -1725,11 +2076,13 @@ const App = {
     const gross = parseFloat(document.getElementById('payoutGross').value);
     const netOverride = parseFloat(document.getElementById('payoutNet').value);
     const net = Number.isFinite(netOverride) && netOverride > 0 ? netOverride : gross * split;
+    const splits = this.collectSplits();
+    const payoutId = 'payout-' + Date.now();
     try {
       await this.api('/council/payouts', {
         method: 'POST',
         body: {
-          id: 'payout-' + Date.now(),
+          id: payoutId,
           account_id: acctSel.value,
           gross_amount: gross,
           net_amount: net,
@@ -1737,11 +2090,134 @@ const App = {
           note: document.getElementById('payoutNote').value,
         },
       });
+      let allocFailures = 0;
+      for (const s of splits) {
+        try {
+          await this.api('/council/allocations/record', {
+            method: 'POST',
+            body: {
+              payout_id: payoutId,
+              category: s.category,
+              amount: s.amount,
+            },
+          });
+        } catch (e) {
+          allocFailures++;
+        }
+      }
       this.closeModal();
       this.loadCouncil();
-      this.flash('Payout recorded', 'info');
+      if (allocFailures > 0) {
+        this.flash(`Payout recorded — ${allocFailures} allocation(s) failed`, 'error');
+      } else if (splits.length > 0) {
+        this.flash(`Payout recorded · ${splits.length} splits allocated`, 'info');
+      } else {
+        this.flash('Payout recorded', 'info');
+      }
     } catch (err) {
       this.flash(err.message, 'error');
+    }
+  },
+
+  allocatePayout(payoutId) {
+    const p = (this.state.payouts || []).find(x => x.id === payoutId);
+    if (!p) {
+      this.flash('Payout not found', 'error');
+      return;
+    }
+    const allocated = p.allocated || 0;
+    const unallocated = p.unallocated !== undefined ? p.unallocated : p.net_amount - allocated;
+    this.state.allocatingPayout = { id: payoutId, unallocated };
+    this.openModal(`
+      <h3 style="margin-bottom:8px">Allocate Payout</h3>
+      <div style="font-size:12px;color:var(--text-2);margin-bottom:12px">
+        ${formatDate(p.requested_at)} · Net $${fmt(p.net_amount)} · Already allocated $${fmt(allocated)}
+      </div>
+      <div class="split-section" style="border-top:none;padding-top:0">
+        <div class="split-header">
+          <span class="split-title">Remaining: $${fmt(unallocated)}</span>
+          <div class="split-actions">
+            <button type="button" class="btn btn-sm" onclick="App.seedAllocateOnlySplit()">Apply rules</button>
+            <button type="button" class="btn btn-sm" onclick="App.clearPayoutSplit()">Clear</button>
+          </div>
+        </div>
+        <div id="splitRows" class="split-rows"></div>
+        <div class="split-footer">
+          <span id="splitAllocated">Allocated: $0</span>
+          <span id="splitRemaining" style="color:var(--gold);font-weight:600">Remaining: $${fmt(unallocated)}</span>
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:16px">
+        <button class="btn btn-primary btn-lg" onclick="App.submitAllocateOnly()" style="flex:1">Save Allocations</button>
+        <button class="btn btn-lg" onclick="App.closeModal()">Cancel</button>
+      </div>
+    `);
+    this.renderSplitRows();
+    this.updateAllocateOnlyFooter();
+    document.querySelectorAll('#splitRows .split-input').forEach(i => {
+      i.oninput = () => this.updateAllocateOnlyFooter();
+    });
+  },
+
+  updateAllocateOnlyFooter() {
+    const { unallocated } = this.state.allocatingPayout || { unallocated: 0 };
+    const inputs = document.querySelectorAll('#splitRows .split-input');
+    let allocated = 0;
+    inputs.forEach(i => { allocated += parseFloat(i.value) || 0; });
+    const remaining = unallocated - allocated;
+    const allocEl = document.getElementById('splitAllocated');
+    const remEl = document.getElementById('splitRemaining');
+    if (allocEl) allocEl.textContent = `Allocated: $${fmt(allocated)} of $${fmt(unallocated)}`;
+    if (remEl) {
+      if (remaining < -0.5) {
+        remEl.textContent = `Over by $${fmt(-remaining)}`;
+        remEl.style.color = 'var(--red)';
+      } else if (remaining > 0.5) {
+        remEl.textContent = `Remaining: $${fmt(remaining)}`;
+        remEl.style.color = 'var(--gold)';
+      } else {
+        remEl.textContent = 'Fully allocated ✓';
+        remEl.style.color = 'var(--green)';
+      }
+    }
+  },
+
+  seedAllocateOnlySplit() {
+    const { unallocated } = this.state.allocatingPayout || { unallocated: 0 };
+    if (unallocated <= 0) return;
+    document.querySelectorAll('#splitRows .split-input').forEach(i => {
+      const pct = parseFloat(i.dataset.pct) || 0;
+      i.value = (unallocated * pct / 100).toFixed(2);
+    });
+    this.updateAllocateOnlyFooter();
+  },
+
+  async submitAllocateOnly() {
+    const ctx = this.state.allocatingPayout;
+    if (!ctx) return;
+    const splits = this.collectSplits();
+    if (!splits.length) {
+      this.flash('No allocations entered', 'info');
+      return;
+    }
+    let failures = 0;
+    for (const s of splits) {
+      try {
+        await this.api('/council/allocations/record', {
+          method: 'POST',
+          body: { payout_id: ctx.id, category: s.category, amount: s.amount },
+        });
+      } catch (e) {
+        failures++;
+      }
+    }
+    this.closeModal();
+    this.state.allocatingPayout = null;
+    this.loadCouncil();
+    if (failures > 0) {
+      this.flash(`${splits.length - failures} allocated, ${failures} failed`, 'error');
+    } else {
+      this.flash(`${splits.length} allocations saved`, 'info');
     }
   },
 
@@ -2236,6 +2712,9 @@ const App = {
     document.querySelectorAll('.nav-btn').forEach(btn => {
       btn.addEventListener('click', () => this.switchView(btn.dataset.view));
     });
+    document.querySelectorAll('#adminSubNav .sub-nav-btn').forEach(btn => {
+      btn.addEventListener('click', () => this.switchAdminTab(btn.dataset.subview));
+    });
     document.getElementById('killSwitchBtn').addEventListener('click', () => this.killSwitch());
   },
 
@@ -2245,6 +2724,19 @@ const App = {
     document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
     document.getElementById(`view-${view}`).classList.add('active');
     document.querySelector(`[data-view="${view}"]`).classList.add('active');
+    if (view === 'administratum') {
+      this.loadAdministratum();
+    }
+  },
+
+  switchAdminTab(sub) {
+    this.state.adminTab = sub;
+    document.querySelectorAll('#view-administratum .sub-view').forEach(v => v.classList.remove('active'));
+    document.querySelectorAll('#adminSubNav .sub-nav-btn').forEach(b => b.classList.remove('active'));
+    const panel = document.getElementById(`sub-${sub}`);
+    const btn = document.querySelector(`#adminSubNav [data-subview="${sub}"]`);
+    if (panel) panel.classList.add('active');
+    if (btn) btn.classList.add('active');
   },
 
   // ─── Keyboard ─────────────────────────────────────────
@@ -2262,8 +2754,8 @@ const App = {
       }
 
       // Number keys switch views
-      if (e.key >= '1' && e.key <= '7') {
-        const views = ['throne', 'tactical', 'forge', 'performance', 'council', 'prop', 'arsenal'];
+      if (e.key >= '1' && e.key <= '8') {
+        const views = ['throne', 'tactical', 'forge', 'performance', 'council', 'administratum', 'prop', 'arsenal'];
         this.switchView(views[parseInt(e.key) - 1]);
         return;
       }
@@ -2323,8 +2815,9 @@ const App = {
       { icon: '⚒', label: 'Forge Console', key: '3', action: () => this.switchView('forge') },
       { icon: '📊', label: 'Performance', key: '4', action: () => this.switchView('performance') },
       { icon: '⚖', label: 'Council', key: '5', action: () => this.switchView('council') },
-      { icon: '⊕', label: 'Prop Desk', key: '6', action: () => this.switchView('prop') },
-      { icon: '⎔', label: 'Arsenal (Holdings + Wheel)', key: '7', action: () => this.switchView('arsenal') },
+      { icon: '§', label: 'Administratum (Personal Finance)', key: '6', action: () => this.switchView('administratum') },
+      { icon: '⊕', label: 'Prop Desk', key: '7', action: () => this.switchView('prop') },
+      { icon: '⎔', label: 'Arsenal (Holdings + Wheel)', key: '8', action: () => this.switchView('arsenal') },
       { icon: '+', label: 'Create Fortress', key: '', action: () => this.createFortress() },
       { icon: '⊘', label: 'Kill Switch', key: 'Ctrl+K', action: () => this.killSwitch() },
       { icon: '↻', label: 'Refresh Data', key: 'R', action: () => this.loadData() },
