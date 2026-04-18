@@ -1870,17 +1870,14 @@ const App = {
       propAccounts.some(a => a.id === w.account_id || a.name === w.account_name)
     );
 
-    // Sort: phase class (live > fxt > combine > blown), then by return % descending
-    const phaseOrder = { live: 0, fxt: 1, combine: 2, blown: 3 };
+    // Sort: group by phase (live > fxt > combine > practice > blown),
+    // then by current_balance descending within each group.
+    const phaseOrder = { live: 0, fxt: 1, combine: 2, practice: 3, blown: 4 };
+    const phaseOf = a => a.account_phase || (a.status === 'blown' ? 'blown' : 'combine');
     const sorted = [...propAccounts].sort((a, b) => {
-      const pa = a.account_phase || (a.status === 'blown' ? 'blown' : 'combine');
-      const pb = b.account_phase || (b.status === 'blown' ? 'blown' : 'combine');
-      const classDiff = (phaseOrder[pa] ?? 2) - (phaseOrder[pb] ?? 2);
+      const classDiff = (phaseOrder[phaseOf(a)] ?? 2) - (phaseOrder[phaseOf(b)] ?? 2);
       if (classDiff !== 0) return classDiff;
-      // Within same phase: sort by return % descending
-      const retA = a.initial_balance > 0 ? (a.current_balance - a.initial_balance) / a.initial_balance : 0;
-      const retB = b.initial_balance > 0 ? (b.current_balance - b.initial_balance) / b.initial_balance : 0;
-      return retB - retA;
+      return (b.current_balance || 0) - (a.current_balance || 0);
     });
 
     this.renderPropBanner(propAccounts, propPayouts);
