@@ -44,6 +44,9 @@ type Store struct {
 	mnTxns              map[string]*domain.MNTransaction
 	syncStates          map[string]*domain.FinanceSyncState
 	bankConnections     map[string]*domain.BankConnection
+	wheelConfig         *domain.WheelConfig
+	wheelWatchlist      map[string]*domain.WheelWatchlistEntry
+	wheelRecs           []domain.WheelRecommendation
 }
 
 // New creates a new empty store.
@@ -70,6 +73,20 @@ func New() *Store {
 		mnTxns:          make(map[string]*domain.MNTransaction),
 		syncStates:      make(map[string]*domain.FinanceSyncState),
 		bankConnections: make(map[string]*domain.BankConnection),
+		wheelConfig: &domain.WheelConfig{
+			ID:               "default",
+			DefaultPutDelta:  0.20,
+			DefaultCallDelta: 0.20,
+			MinDTE:           25,
+			MaxDTE:           45,
+			MinPremiumYield:  0.20,
+			ProfitTakePct:    0.50,
+			RollDTE:          21,
+			MaxPositions:     10,
+			ClaudeReview:     true,
+			UpdatedAt:        time.Now(),
+		},
+		wheelWatchlist: make(map[string]*domain.WheelWatchlistEntry),
 	}
 }
 
@@ -949,4 +966,131 @@ func (s *Store) DeleteBankConnection(id string) error {
 	defer s.mu.Unlock()
 	delete(s.bankConnections, id)
 	return nil
+}
+
+// ─── Wheel Advisor (in-memory) ──────────────────────────────
+
+func (s *Store) GetWheelConfig() (*domain.WheelConfig, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.wheelConfig == nil {
+		return nil, fmt.Errorf("wheel config not initialized")
+	}
+	cp := *s.wheelConfig
+	return &cp, nil
+}
+
+func (s *Store) UpdateWheelConfig(c *domain.WheelConfig) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	c.UpdatedAt = time.Now()
+	c.ID = "default"
+	cp := *c
+	s.wheelConfig = &cp
+	return nil
+}
+
+func (s *Store) UpsertWheelWatchlistEntry(e *domain.WheelWatchlistEntry) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if e.CreatedAt.IsZero() {
+		e.CreatedAt = time.Now()
+	}
+	e.UpdatedAt = time.Now()
+	cp := *e
+	s.wheelWatchlist[e.Symbol] = &cp
+	return nil
+}
+
+func (s *Store) ListWheelWatchlist() []domain.WheelWatchlistEntry {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]domain.WheelWatchlistEntry, 0, len(s.wheelWatchlist))
+	for _, e := range s.wheelWatchlist {
+		out = append(out, *e)
+	}
+	return out
+}
+
+func (s *Store) DeleteWheelWatchlistEntry(symbol string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.wheelWatchlist, symbol)
+	return nil
+}
+
+func (s *Store) InsertWheelRecommendations(recs []domain.WheelRecommendation) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, r := range recs {
+		if r.CreatedAt.IsZero() {
+			r.CreatedAt = time.Now()
+		}
+		if r.Status == "" {
+			r.Status = domain.WheelRecFresh
+		}
+		s.wheelRecs = append(s.wheelRecs, r)
+	}
+	return nil
+}
+
+func (s *Store) ListWheelRecommendations(status string, limit int) []domain.WheelRecommendation {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]domain.WheelRecommendation, 0, len(s.wheelRecs))
+	for i := len(s.wheelRecs) - 1; i >= 0; i-- {
+		r := s.wheelRecs[i]
+		if status != "" && r.Status != status {
+			continue
+		}
+		out = append(out, r)
+		if limit > 0 && len(out) >= limit {
+			break
+		}
+	}
+	return out
+}
+
+func (s *Store) GetWheelRecommendation(id string) (*domain.WheelRecommendation, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, r := range s.wheelRecs {
+		if r.ID == id {
+			cp := r
+			return &cp, nil
+		}
+	}
+	return nil, fmt.Errorf("wheel rec %s not found", id)
+}
+
+func (s *Store) UpdateWheelRecommendationStatus(id, status string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := time.Now()
+	for i := range s.wheelRecs {
+		if s.wheelRecs[i].ID == id {
+			s.wheelRecs[i].Status = status
+			switch status {
+			case domain.WheelRecTaken:
+				s.wheelRecs[i].TakenAt = &now
+			case domain.WheelRecDismissed:
+				s.wheelRecs[i].DismissedAt = &now
+			}
+			return nil
+		}
+	}
+	return fmt.Errorf("wheel rec %s not found", id)
+}
+
+func (s *Store) ExpireOldWheelRecommendations(olderThan time.Time) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n := 0
+	for i := range s.wheelRecs {
+		if s.wheelRecs[i].Status == domain.WheelRecFresh && s.wheelRecs[i].CreatedAt.Before(olderThan) {
+			s.wheelRecs[i].Status = domain.WheelRecExpired
+			n++
+		}
+	}
+	return n, nil
 }

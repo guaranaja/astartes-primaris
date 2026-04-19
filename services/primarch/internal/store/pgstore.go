@@ -447,6 +447,63 @@ func (s *PGStore) ensureSchema() {
 		)`,
 		`CREATE INDEX IF NOT EXISTS bank_connections_status_idx ON bank_connections(status)`,
 		`CREATE INDEX IF NOT EXISTS bank_connections_provider_idx ON bank_connections(provider)`,
+
+		// ── Wheel advisor ──
+		`CREATE TABLE IF NOT EXISTS wheel_watchlist (
+			symbol               TEXT PRIMARY KEY,
+			max_position_value   DOUBLE PRECISION,
+			target_put_delta     DOUBLE PRECISION,
+			target_call_delta    DOUBLE PRECISION,
+			min_premium_yield    DOUBLE PRECISION,
+			notes                TEXT,
+			active               BOOLEAN NOT NULL DEFAULT TRUE,
+			created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+			updated_at           TIMESTAMPTZ NOT NULL DEFAULT now()
+		)`,
+		`CREATE TABLE IF NOT EXISTS wheel_config (
+			id                   TEXT PRIMARY KEY DEFAULT 'default',
+			default_put_delta    DOUBLE PRECISION NOT NULL DEFAULT 0.20,
+			default_call_delta   DOUBLE PRECISION NOT NULL DEFAULT 0.20,
+			min_dte              INTEGER NOT NULL DEFAULT 25,
+			max_dte              INTEGER NOT NULL DEFAULT 45,
+			min_premium_yield    DOUBLE PRECISION NOT NULL DEFAULT 0.20,
+			profit_take_pct      DOUBLE PRECISION NOT NULL DEFAULT 0.50,
+			roll_dte             INTEGER NOT NULL DEFAULT 21,
+			max_positions        INTEGER NOT NULL DEFAULT 10,
+			claude_review        BOOLEAN NOT NULL DEFAULT TRUE,
+			updated_at           TIMESTAMPTZ NOT NULL DEFAULT now()
+		)`,
+		`INSERT INTO wheel_config (id) VALUES ('default') ON CONFLICT DO NOTHING`,
+		`CREATE TABLE IF NOT EXISTS wheel_recommendations (
+			id                   TEXT PRIMARY KEY,
+			run_id               TEXT NOT NULL,
+			action               TEXT NOT NULL,
+			symbol               TEXT NOT NULL,
+			underlying_price     DOUBLE PRECISION,
+			option_type          TEXT,
+			strike               DOUBLE PRECISION,
+			expiration           TEXT,
+			dte                  INTEGER,
+			delta                DOUBLE PRECISION,
+			bid                  DOUBLE PRECISION,
+			ask                  DOUBLE PRECISION,
+			mid                  DOUBLE PRECISION,
+			premium              DOUBLE PRECISION,
+			collateral           DOUBLE PRECISION,
+			annualized_yield     DOUBLE PRECISION,
+			iv_rank              DOUBLE PRECISION,
+			score                DOUBLE PRECISION,
+			rules_rationale      TEXT,
+			review_note          TEXT,
+			review_score         DOUBLE PRECISION,
+			status               TEXT NOT NULL DEFAULT 'fresh',
+			created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+			taken_at             TIMESTAMPTZ,
+			dismissed_at         TIMESTAMPTZ
+		)`,
+		`CREATE INDEX IF NOT EXISTS wheel_rec_run_idx    ON wheel_recommendations(run_id)`,
+		`CREATE INDEX IF NOT EXISTS wheel_rec_status_idx ON wheel_recommendations(status, created_at DESC)`,
+		`CREATE INDEX IF NOT EXISTS wheel_rec_symbol_idx ON wheel_recommendations(symbol)`,
 	}
 	for _, stmt := range stmts {
 		if _, err := s.db.Exec(stmt); err != nil {
@@ -2595,6 +2652,250 @@ func (s *PGStore) DeleteBankConnection(id string) error {
 		return fmt.Errorf("delete bank connection: %w", err)
 	}
 	return nil
+}
+
+// ─── Wheel Advisor (PG) ─────────────────────────────────────
+
+func (s *PGStore) GetWheelConfig() (*domain.WheelConfig, error) {
+	var c domain.WheelConfig
+	err := s.db.QueryRow(`SELECT id, default_put_delta, default_call_delta,
+		min_dte, max_dte, min_premium_yield, profit_take_pct, roll_dte,
+		max_positions, claude_review, updated_at
+		FROM wheel_config WHERE id = 'default'`).
+		Scan(&c.ID, &c.DefaultPutDelta, &c.DefaultCallDelta,
+			&c.MinDTE, &c.MaxDTE, &c.MinPremiumYield, &c.ProfitTakePct,
+			&c.RollDTE, &c.MaxPositions, &c.ClaudeReview, &c.UpdatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("get wheel config: %w", err)
+	}
+	return &c, nil
+}
+
+func (s *PGStore) UpdateWheelConfig(c *domain.WheelConfig) error {
+	c.UpdatedAt = time.Now()
+	_, err := s.db.Exec(`UPDATE wheel_config SET
+		default_put_delta=$2, default_call_delta=$3, min_dte=$4, max_dte=$5,
+		min_premium_yield=$6, profit_take_pct=$7, roll_dte=$8,
+		max_positions=$9, claude_review=$10, updated_at=$11
+		WHERE id='default'`,
+		c.ID, c.DefaultPutDelta, c.DefaultCallDelta, c.MinDTE, c.MaxDTE,
+		c.MinPremiumYield, c.ProfitTakePct, c.RollDTE, c.MaxPositions,
+		c.ClaudeReview, c.UpdatedAt)
+	if err != nil {
+		return fmt.Errorf("update wheel config: %w", err)
+	}
+	return nil
+}
+
+func nullFloat(f *float64) interface{} {
+	if f == nil {
+		return nil
+	}
+	return *f
+}
+
+func (s *PGStore) UpsertWheelWatchlistEntry(e *domain.WheelWatchlistEntry) error {
+	if e.CreatedAt.IsZero() {
+		e.CreatedAt = time.Now()
+	}
+	e.UpdatedAt = time.Now()
+	_, err := s.db.Exec(`INSERT INTO wheel_watchlist
+		(symbol, max_position_value, target_put_delta, target_call_delta,
+		 min_premium_yield, notes, active, created_at, updated_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+		ON CONFLICT (symbol) DO UPDATE SET
+			max_position_value = EXCLUDED.max_position_value,
+			target_put_delta   = EXCLUDED.target_put_delta,
+			target_call_delta  = EXCLUDED.target_call_delta,
+			min_premium_yield  = EXCLUDED.min_premium_yield,
+			notes              = EXCLUDED.notes,
+			active             = EXCLUDED.active,
+			updated_at         = EXCLUDED.updated_at`,
+		e.Symbol, nullFloat(e.MaxPositionValue), nullFloat(e.TargetPutDelta),
+		nullFloat(e.TargetCallDelta), nullFloat(e.MinPremiumYield),
+		nullStr(e.Notes), e.Active, e.CreatedAt, e.UpdatedAt)
+	if err != nil {
+		return fmt.Errorf("upsert watchlist: %w", err)
+	}
+	return nil
+}
+
+func (s *PGStore) ListWheelWatchlist() []domain.WheelWatchlistEntry {
+	rows, err := s.db.Query(`SELECT symbol, max_position_value, target_put_delta,
+		target_call_delta, min_premium_yield, COALESCE(notes,''), active, created_at, updated_at
+		FROM wheel_watchlist ORDER BY symbol`)
+	if err != nil {
+		s.logger.Error("list watchlist", "error", err)
+		return nil
+	}
+	defer rows.Close()
+	var out []domain.WheelWatchlistEntry
+	for rows.Next() {
+		var e domain.WheelWatchlistEntry
+		var maxPos, putD, callD, minYield sql.NullFloat64
+		if err := rows.Scan(&e.Symbol, &maxPos, &putD, &callD, &minYield,
+			&e.Notes, &e.Active, &e.CreatedAt, &e.UpdatedAt); err != nil {
+			s.logger.Error("scan watchlist", "error", err)
+			continue
+		}
+		if maxPos.Valid {
+			v := maxPos.Float64
+			e.MaxPositionValue = &v
+		}
+		if putD.Valid {
+			v := putD.Float64
+			e.TargetPutDelta = &v
+		}
+		if callD.Valid {
+			v := callD.Float64
+			e.TargetCallDelta = &v
+		}
+		if minYield.Valid {
+			v := minYield.Float64
+			e.MinPremiumYield = &v
+		}
+		out = append(out, e)
+	}
+	return out
+}
+
+func (s *PGStore) DeleteWheelWatchlistEntry(symbol string) error {
+	_, err := s.db.Exec(`DELETE FROM wheel_watchlist WHERE symbol = $1`, symbol)
+	if err != nil {
+		return fmt.Errorf("delete watchlist entry: %w", err)
+	}
+	return nil
+}
+
+func (s *PGStore) InsertWheelRecommendations(recs []domain.WheelRecommendation) error {
+	if len(recs) == 0 {
+		return nil
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback()
+	for _, r := range recs {
+		if r.CreatedAt.IsZero() {
+			r.CreatedAt = time.Now()
+		}
+		if r.Status == "" {
+			r.Status = domain.WheelRecFresh
+		}
+		if _, err := tx.Exec(`INSERT INTO wheel_recommendations
+			(id, run_id, action, symbol, underlying_price, option_type, strike,
+			 expiration, dte, delta, bid, ask, mid, premium, collateral,
+			 annualized_yield, iv_rank, score, rules_rationale, review_note,
+			 review_score, status, created_at)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)`,
+			r.ID, r.RunID, r.Action, r.Symbol, r.UnderlyingPrice,
+			nullStr(r.OptionType), r.Strike, nullStr(r.Expiration), r.DTE,
+			r.Delta, r.Bid, r.Ask, r.Mid, r.Premium, r.Collateral,
+			r.AnnualizedYield, r.IVRank, r.Score, nullStr(r.RulesRationale),
+			nullStr(r.ReviewNote), r.ReviewScore, r.Status, r.CreatedAt); err != nil {
+			return fmt.Errorf("insert rec %s: %w", r.ID, err)
+		}
+	}
+	return tx.Commit()
+}
+
+func (s *PGStore) ListWheelRecommendations(status string, limit int) []domain.WheelRecommendation {
+	q := `SELECT id, run_id, action, symbol, underlying_price,
+		COALESCE(option_type,''), COALESCE(strike,0), COALESCE(expiration,''),
+		COALESCE(dte,0), COALESCE(delta,0), COALESCE(bid,0), COALESCE(ask,0),
+		COALESCE(mid,0), COALESCE(premium,0), COALESCE(collateral,0),
+		COALESCE(annualized_yield,0), COALESCE(iv_rank,0), score,
+		COALESCE(rules_rationale,''), COALESCE(review_note,''),
+		COALESCE(review_score,0), status, created_at, taken_at, dismissed_at
+		FROM wheel_recommendations WHERE 1=1`
+	var args []interface{}
+	idx := 0
+	if status != "" {
+		idx++
+		q += fmt.Sprintf(" AND status = $%d", idx)
+		args = append(args, status)
+	}
+	q += " ORDER BY created_at DESC"
+	if limit > 0 {
+		idx++
+		q += fmt.Sprintf(" LIMIT $%d", idx)
+		args = append(args, limit)
+	}
+	rows, err := s.db.Query(q, args...)
+	if err != nil {
+		s.logger.Error("list wheel recs", "error", err)
+		return nil
+	}
+	defer rows.Close()
+	var out []domain.WheelRecommendation
+	for rows.Next() {
+		var r domain.WheelRecommendation
+		var taken, dismissed sql.NullTime
+		if err := rows.Scan(&r.ID, &r.RunID, &r.Action, &r.Symbol, &r.UnderlyingPrice,
+			&r.OptionType, &r.Strike, &r.Expiration, &r.DTE, &r.Delta,
+			&r.Bid, &r.Ask, &r.Mid, &r.Premium, &r.Collateral,
+			&r.AnnualizedYield, &r.IVRank, &r.Score, &r.RulesRationale,
+			&r.ReviewNote, &r.ReviewScore, &r.Status, &r.CreatedAt,
+			&taken, &dismissed); err != nil {
+			s.logger.Error("scan wheel rec", "error", err)
+			continue
+		}
+		if taken.Valid {
+			t := taken.Time
+			r.TakenAt = &t
+		}
+		if dismissed.Valid {
+			t := dismissed.Time
+			r.DismissedAt = &t
+		}
+		out = append(out, r)
+	}
+	return out
+}
+
+func (s *PGStore) GetWheelRecommendation(id string) (*domain.WheelRecommendation, error) {
+	recs := s.ListWheelRecommendations("", 0)
+	for _, r := range recs {
+		if r.ID == id {
+			return &r, nil
+		}
+	}
+	return nil, fmt.Errorf("wheel rec %s not found", id)
+}
+
+func (s *PGStore) UpdateWheelRecommendationStatus(id, status string) error {
+	var col string
+	switch status {
+	case domain.WheelRecTaken:
+		col = "taken_at"
+	case domain.WheelRecDismissed:
+		col = "dismissed_at"
+	}
+	if col != "" {
+		_, err := s.db.Exec(fmt.Sprintf(`UPDATE wheel_recommendations
+			SET status = $2, %s = now() WHERE id = $1`, col), id, status)
+		if err != nil {
+			return fmt.Errorf("update rec status: %w", err)
+		}
+		return nil
+	}
+	_, err := s.db.Exec(`UPDATE wheel_recommendations SET status = $2 WHERE id = $1`, id, status)
+	if err != nil {
+		return fmt.Errorf("update rec status: %w", err)
+	}
+	return nil
+}
+
+func (s *PGStore) ExpireOldWheelRecommendations(olderThan time.Time) (int, error) {
+	res, err := s.db.Exec(`UPDATE wheel_recommendations
+		SET status = 'expired'
+		WHERE status = 'fresh' AND created_at < $1`, olderThan)
+	if err != nil {
+		return 0, fmt.Errorf("expire old recs: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	return int(n), nil
 }
 
 func nullJSON(v json.RawMessage) interface{} {

@@ -30,8 +30,10 @@ import (
 	"time"
 
 	"github.com/guaranaja/astartes-primaris/services/primarch/internal/advisor"
+	wheeladvisor "github.com/guaranaja/astartes-primaris/services/primarch/internal/advisor/wheel"
 	"github.com/guaranaja/astartes-primaris/services/primarch/internal/api"
 	"github.com/guaranaja/astartes-primaris/services/primarch/internal/banking"
+	"github.com/guaranaja/astartes-primaris/services/primarch/internal/brokers/tastytrade"
 	"github.com/guaranaja/astartes-primaris/services/primarch/internal/cfo"
 	"github.com/guaranaja/astartes-primaris/services/primarch/internal/ingest"
 	"github.com/guaranaja/astartes-primaris/services/primarch/internal/config"
@@ -136,9 +138,30 @@ func main() {
 	}
 
 	// Claude advisor — enabled only if CLAUDE_API_KEY is set
-	if advisorClient := advisor.NewClient(logger); advisorClient != nil {
-		srv.SetAdvisor(advisorClient)
+	var claudeClient *advisor.Client
+	if c := advisor.NewClient(logger); c != nil {
+		claudeClient = c
+		srv.SetAdvisor(claudeClient)
 		fmt.Println("  Advisor:        connected (Claude)")
+	}
+
+	// Wheel advisor — tastytrade OAuth + rules engine + optional Claude review.
+	// Balance snapshots flow back into Firefly (added in the wheel service).
+	if tasty := tastytrade.NewFromEnv(logger); tasty != nil && tasty.Available() {
+		// Find the Firefly client (if it was set up above) via the server's CFO.
+		// The wheel service takes the firefly client directly for balance sync.
+		var fireflyForWheel *cfo.FireflyClient
+		if cfg.CFOEngineURL != "" && cfg.CFOEngineToken != "" {
+			fireflyForWheel = cfo.NewFireflyClient(cfg.CFOEngineURL, cfg.CFOEngineToken)
+		}
+		wheelSvc := wheeladvisor.NewService(dataStore, tasty, claudeClient, fireflyForWheel, logger)
+		if wheelSvc != nil {
+			srv.SetWheelAdvisor(wheelSvc)
+			wheelCtx, cancelWheel := context.WithCancel(context.Background())
+			_ = cancelWheel
+			wheelSvc.Start(wheelCtx)
+			fmt.Println("  Wheel advisor:  running (tastytrade, hourly during market hours)")
+		}
 	}
 
 	// Seed initial data

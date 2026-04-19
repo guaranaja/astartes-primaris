@@ -151,4 +151,16 @@ type DataStore interface {
 	ListBankConnections() []domain.BankConnection
 	UpdateBankConnection(c *domain.BankConnection) error
 	DeleteBankConnection(id string) error
+
+	// ─── Wheel Advisor ────────────────────────────────────
+	GetWheelConfig() (*domain.WheelConfig, error)
+	UpdateWheelConfig(c *domain.WheelConfig) error
+	UpsertWheelWatchlistEntry(e *domain.WheelWatchlistEntry) error
+	ListWheelWatchlist() []domain.WheelWatchlistEntry
+	DeleteWheelWatchlistEntry(symbol string) error
+	InsertWheelRecommendations(recs []domain.WheelRecommendation) error
+	ListWheelRecommendations(status string, limit int) []domain.WheelRecommendation
+	GetWheelRecommendation(id string) (*domain.WheelRecommendation, error)
+	UpdateWheelRecommendationStatus(id, status string) error
+	ExpireOldWheelRecommendations(olderThan time.Time) (int, error)
 }

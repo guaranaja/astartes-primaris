@@ -70,6 +70,7 @@ const App = {
     this.loadAdministratum();
     this.loadHoldings();
     this.loadWheelCycles();
+    this.loadWheelAdvisor();
   },
 
   // ─── API Client ────────────────────────────────────────
@@ -4008,6 +4009,183 @@ function setText(id, val) {
   const el = document.getElementById(id);
   if (el) el.textContent = val;
 }
+
+// ─── Wheel Advisor ───────────────────────────────────────
+
+App.loadWheelAdvisor = async function() {
+  try {
+    const [status, recs, watchlist, cfg] = await Promise.all([
+      App.api('/wheel/status').catch(() => ({ available: false })),
+      App.api('/wheel/recommendations?status=fresh&limit=20').catch(() => []),
+      App.api('/wheel/watchlist').catch(() => []),
+      App.api('/wheel/config').catch(() => null),
+    ]);
+    App.state.wheelAdvisorStatus = status;
+    App.state.wheelRecs = recs || [];
+    App.state.wheelAdvisorWatchlist = watchlist || [];
+    App.state.wheelAdvisorConfig = cfg;
+    App.renderWheelAdvisorStatus();
+    App.renderWheelRecommendations();
+    App.renderWheelAdvisorWatchlist();
+  } catch (e) { /* best-effort */ }
+};
+
+App.renderWheelAdvisorStatus = function() {
+  const el = document.getElementById('wheelAdvisorStatus');
+  if (!el) return;
+  const s = App.state.wheelAdvisorStatus || {};
+  if (!s.available) {
+    el.textContent = 'Offline — set TASTYTRADE_CLIENT_ID / REFRESH_TOKEN';
+    el.style.color = 'var(--red)';
+  } else {
+    el.textContent = s.claude_review ? 'tastytrade · Claude review on' : 'tastytrade';
+    el.style.color = 'var(--text-3)';
+  }
+};
+
+App.renderWheelRecommendations = function() {
+  const el = document.getElementById('wheelRecommendations');
+  if (!el) return;
+  const recs = App.state.wheelRecs || [];
+  if (!recs.length) {
+    el.innerHTML = '<div class="empty-state">No fresh recommendations — click Scan Now or add tickers to the watchlist</div>';
+    return;
+  }
+  const actionLabel = {
+    csp_open: 'Sell Put', cc_open: 'Sell Call',
+    csp_close: 'Close Put', cc_close: 'Close Call',
+    csp_roll: 'Roll Put',  cc_roll: 'Roll Call',
+  };
+  const actionColor = {
+    csp_open: 'var(--green)', cc_open: 'var(--gold)',
+    csp_close: 'var(--red)', cc_close: 'var(--red)',
+    csp_roll: 'var(--accent)', cc_roll: 'var(--accent)',
+  };
+  el.innerHTML = recs.map(r => {
+    const color = actionColor[r.action] || 'var(--text-2)';
+    const label = actionLabel[r.action] || r.action;
+    const yieldTag = r.annualized_yield ? `${(r.annualized_yield * 100).toFixed(1)}% ann` : '';
+    const ivTag = r.iv_rank ? `IVR ${Math.round(r.iv_rank * 100)}` : '';
+    const dteTag = r.dte ? `${r.dte}DTE` : '';
+    return `
+      <div class="wheel-rec-card">
+        <div class="wheel-rec-header">
+          <span class="wheel-rec-action" style="color:${color}">${esc(label)}</span>
+          <span class="wheel-rec-symbol">${esc(r.symbol)}</span>
+          <span class="wheel-rec-strike">$${fmt(r.strike)} ${esc(r.option_type || '')}</span>
+          <span class="wheel-rec-exp">${esc(r.expiration || '')}</span>
+          <div class="wheel-rec-tags">
+            ${dteTag ? `<span class="wheel-rec-tag">${dteTag}</span>` : ''}
+            ${yieldTag ? `<span class="wheel-rec-tag" style="color:var(--gold)">${yieldTag}</span>` : ''}
+            ${ivTag ? `<span class="wheel-rec-tag">${ivTag}</span>` : ''}
+          </div>
+          <div class="wheel-rec-actions">
+            <button class="btn btn-sm" onclick="App.takeWheelRec('${esc(r.id)}')">Taken</button>
+            <button class="btn btn-sm" onclick="App.dismissWheelRec('${esc(r.id)}')">Dismiss</button>
+          </div>
+        </div>
+        ${r.rules_rationale ? `<div class="wheel-rec-body">${esc(r.rules_rationale)}</div>` : ''}
+        ${r.review_note ? `<div class="wheel-rec-review">Claude: ${esc(r.review_note)}</div>` : ''}
+      </div>`;
+  }).join('');
+};
+
+App.renderWheelAdvisorWatchlist = function() {
+  const el = document.getElementById('wheelWatchlist');
+  if (!el) return;
+  const list = App.state.wheelAdvisorWatchlist || [];
+  if (!list.length) {
+    el.innerHTML = '<div class="empty-state">No tickers — add tickers you\'re willing to sell puts on</div>';
+    return;
+  }
+  el.innerHTML = list.map(w => `
+    <div class="wheel-watchlist-row">
+      <span class="wheel-watchlist-sym">${esc(w.symbol)}</span>
+      ${w.max_position_value ? `<span class="wheel-watchlist-meta">Max $${fmt(w.max_position_value)}</span>` : ''}
+      ${w.target_put_delta ? `<span class="wheel-watchlist-meta">Put Δ ${w.target_put_delta}</span>` : ''}
+      ${w.notes ? `<span class="wheel-watchlist-notes">${esc(w.notes)}</span>` : ''}
+      <button class="btn btn-sm" onclick="App.removeWheelWatchlistEntry('${esc(w.symbol)}')">Remove</button>
+    </div>
+  `).join('');
+};
+
+App.wheelScan = async function() {
+  try {
+    await App.api('/wheel/scan', { method: 'POST' });
+    App.flash('Wheel scan triggered — results in ~30s', 'info');
+    setTimeout(() => App.loadWheelAdvisor(), 30000);
+  } catch (e) {
+    App.flash(e.message, 'error');
+  }
+};
+
+App.takeWheelRec = async function(id) {
+  try {
+    await App.api(`/wheel/recommendations/${encodeURIComponent(id)}/take`, { method: 'POST' });
+    App.flash('Marked as taken', 'info');
+    App.loadWheelAdvisor();
+  } catch (e) { App.flash(e.message, 'error'); }
+};
+
+App.dismissWheelRec = async function(id) {
+  try {
+    await App.api(`/wheel/recommendations/${encodeURIComponent(id)}/dismiss`, { method: 'POST' });
+    App.loadWheelAdvisor();
+  } catch (e) { App.flash(e.message, 'error'); }
+};
+
+App.addWheelWatchlistEntry = function() {
+  App.openModal(`
+    <h3 style="margin-bottom:16px">Add Watchlist Ticker</h3>
+    <form onsubmit="App.submitWheelWatchlistEntry(event)" style="display:flex;flex-direction:column;gap:12px">
+      <div class="form-row"><label>Symbol</label><input type="text" id="wlSymbol" class="input" placeholder="AAPL" required style="text-transform:uppercase"></div>
+      <div class="form-row two-col">
+        <div><label>Target put Δ (opt)</label><input type="number" step="0.01" id="wlPutDelta" class="input" placeholder="0.20"></div>
+        <div><label>Target call Δ (opt)</label><input type="number" step="0.01" id="wlCallDelta" class="input" placeholder="0.20"></div>
+      </div>
+      <div class="form-row two-col">
+        <div><label>Max position $ (opt)</label><input type="number" id="wlMaxPos" class="input" placeholder="10000"></div>
+        <div><label>Min annual yield (opt)</label><input type="number" step="0.01" id="wlMinYield" class="input" placeholder="0.20"></div>
+      </div>
+      <div class="form-row"><label>Notes (opt)</label><input type="text" id="wlNotes" class="input"></div>
+      <button type="submit" class="btn btn-primary btn-lg">Add</button>
+    </form>
+  `);
+};
+
+App.submitWheelWatchlistEntry = async function(e) {
+  e.preventDefault();
+  const body = {
+    symbol: document.getElementById('wlSymbol').value.toUpperCase(),
+    active: true,
+  };
+  const pd = parseFloat(document.getElementById('wlPutDelta').value);
+  if (!isNaN(pd)) body.target_put_delta = pd;
+  const cd = parseFloat(document.getElementById('wlCallDelta').value);
+  if (!isNaN(cd)) body.target_call_delta = cd;
+  const mp = parseFloat(document.getElementById('wlMaxPos').value);
+  if (!isNaN(mp)) body.max_position_value = mp;
+  const my = parseFloat(document.getElementById('wlMinYield').value);
+  if (!isNaN(my)) body.min_premium_yield = my;
+  const notes = document.getElementById('wlNotes').value;
+  if (notes) body.notes = notes;
+  try {
+    await App.api('/wheel/watchlist', { method: 'POST', body });
+    App.closeModal();
+    App.loadWheelAdvisor();
+    App.flash('Added to watchlist', 'info');
+  } catch (err) {
+    App.flash(err.message, 'error');
+  }
+};
+
+App.removeWheelWatchlistEntry = async function(symbol) {
+  if (!confirm(`Remove ${symbol} from watchlist?`)) return;
+  try {
+    await App.api(`/wheel/watchlist/${encodeURIComponent(symbol)}`, { method: 'DELETE' });
+    App.loadWheelAdvisor();
+  } catch (e) { App.flash(e.message, 'error'); }
+};
 
 // ─── Boot ─────────────────────────────────────────────────
 

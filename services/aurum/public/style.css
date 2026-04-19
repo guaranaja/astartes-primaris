@@ -2563,3 +2563,106 @@ select.input option { background: var(--bg-1); }
   font-weight: 600;
 }
 
+/* ─── Wheel Advisor ─────────────────────────────────────── */
+.wheel-recs {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.wheel-rec-card {
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.02);
+}
+.wheel-rec-header {
+  display: grid;
+  grid-template-columns: 90px 70px 100px 110px 1fr auto;
+  gap: 10px;
+  align-items: center;
+  font-size: 12px;
+}
+.wheel-rec-action {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  font-weight: 700;
+}
+.wheel-rec-symbol {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--gold);
+  font-family: var(--font-mono);
+}
+.wheel-rec-strike {
+  font-family: var(--font-mono);
+}
+.wheel-rec-exp {
+  font-family: var(--font-mono);
+  color: var(--text-2);
+  font-size: 11px;
+}
+.wheel-rec-tags {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.wheel-rec-tag {
+  font-size: 10px;
+  font-family: var(--font-mono);
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-2);
+}
+.wheel-rec-actions {
+  display: flex;
+  gap: 4px;
+}
+.wheel-rec-body {
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--text-2);
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+.wheel-rec-review {
+  margin-top: 6px;
+  padding: 6px 10px;
+  font-size: 11px;
+  color: var(--text-1);
+  background: rgba(201, 168, 76, 0.05);
+  border-left: 2px solid var(--gold);
+  border-radius: 2px;
+  line-height: 1.5;
+}
+.wheel-watchlist {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.wheel-watchlist-row {
+  display: grid;
+  grid-template-columns: 80px auto auto 1fr auto;
+  gap: 10px;
+  align-items: center;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+}
+.wheel-watchlist-sym {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  color: var(--gold);
+}
+.wheel-watchlist-meta {
+  font-size: 10px;
+  color: var(--text-3);
+  font-family: var(--font-mono);
+}
+.wheel-watchlist-notes {
+  font-size: 11px;
+  color: var(--text-2);
+  font-style: italic;
+}
+

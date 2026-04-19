@@ -732,6 +732,31 @@
             <div class="empty-state">Add holdings and click Analyze to get wheel strategy recommendations</div>
           </div>
         </div>
+
+        <!-- Wheel Advisor (tastytrade) -->
+        <div class="section">
+          <div class="section-header">
+            <h2>Wheel Advisor</h2>
+            <div style="display:flex;gap:8px;align-items:center">
+              <span id="wheelAdvisorStatus" style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:0.8px"></span>
+              <button class="btn btn-sm" onclick="App.wheelScan()">↻ Scan Now</button>
+            </div>
+          </div>
+          <div id="wheelRecommendations" class="wheel-recs">
+            <div class="empty-state">Loading recommendations...</div>
+          </div>
+        </div>
+
+        <!-- Wheel Watchlist -->
+        <div class="section">
+          <div class="section-header">
+            <h2>Wheel Watchlist</h2>
+            <button class="btn btn-sm btn-primary" onclick="App.addWheelWatchlistEntry()">+ Add Ticker</button>
+          </div>
+          <div id="wheelWatchlist" class="wheel-watchlist">
+            <div class="empty-state">No tickers — add tickers you're willing to sell puts on</div>
+          </div>
+        </div>
       </div>
     </div>
 
