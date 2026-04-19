@@ -348,6 +348,33 @@ func (s *PGStore) ensureSchema() {
 			trade_count INT DEFAULT 0,
 			UNIQUE (symbol, timeframe, time, source)
 		)`,
+
+		// ── Advisor ──
+		`CREATE TABLE IF NOT EXISTS advisor_threads (
+			id               TEXT PRIMARY KEY,
+			title            TEXT NOT NULL,
+			topic            TEXT NOT NULL,
+			playbook_key     TEXT,
+			status           TEXT NOT NULL DEFAULT 'active',
+			context_snapshot JSONB,
+			metadata         JSONB,
+			created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+			updated_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+			last_message_at  TIMESTAMPTZ
+		)`,
+		`CREATE INDEX IF NOT EXISTS advisor_threads_updated_idx ON advisor_threads(updated_at DESC)`,
+		`CREATE TABLE IF NOT EXISTS advisor_messages (
+			id         TEXT PRIMARY KEY,
+			thread_id  TEXT NOT NULL REFERENCES advisor_threads(id) ON DELETE CASCADE,
+			role       TEXT NOT NULL,
+			content    TEXT NOT NULL,
+			tool_calls JSONB,
+			model      TEXT,
+			tokens_in  INTEGER,
+			tokens_out INTEGER,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+		)`,
+		`CREATE INDEX IF NOT EXISTS advisor_messages_thread_idx ON advisor_messages(thread_id, created_at)`,
 	}
 	for _, stmt := range stmts {
 		if _, err := s.db.Exec(stmt); err != nil {
@@ -1958,4 +1985,169 @@ func distributeWithdrawal(amount float64, allocs []domain.Allocation) []domain.A
 		}
 	}
 	return result
+}
+
+// ─── Advisor ────────────────────────────────────────────────
+
+func (s *PGStore) CreateAdvisorThread(t *domain.AdvisorThread) error {
+	if t.CreatedAt.IsZero() {
+		t.CreatedAt = time.Now()
+	}
+	t.UpdatedAt = t.CreatedAt
+	_, err := s.db.Exec(`INSERT INTO advisor_threads
+		(id, title, topic, playbook_key, status, context_snapshot, metadata, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+		t.ID, t.Title, t.Topic, nullStr(t.PlaybookKey), t.Status,
+		nullJSON(t.ContextSnapshot), nullJSON(t.Metadata),
+		t.CreatedAt, t.UpdatedAt)
+	if err != nil {
+		return fmt.Errorf("create advisor thread: %w", err)
+	}
+	return nil
+}
+
+func (s *PGStore) GetAdvisorThread(id string) (*domain.AdvisorThread, error) {
+	var t domain.AdvisorThread
+	var playbook sql.NullString
+	var ctxSnap, meta sql.NullString
+	var lastMsg sql.NullTime
+	err := s.db.QueryRow(`SELECT id, title, topic, playbook_key, status,
+		context_snapshot::text, metadata::text, created_at, updated_at, last_message_at
+		FROM advisor_threads WHERE id = $1`, id).
+		Scan(&t.ID, &t.Title, &t.Topic, &playbook, &t.Status,
+			&ctxSnap, &meta, &t.CreatedAt, &t.UpdatedAt, &lastMsg)
+	if err != nil {
+		return nil, fmt.Errorf("get advisor thread: %w", err)
+	}
+	t.PlaybookKey = playbook.String
+	if ctxSnap.Valid {
+		t.ContextSnapshot = json.RawMessage(ctxSnap.String)
+	}
+	if meta.Valid {
+		t.Metadata = json.RawMessage(meta.String)
+	}
+	if lastMsg.Valid {
+		lm := lastMsg.Time
+		t.LastMessageAt = &lm
+	}
+	t.Messages = s.ListAdvisorMessages(id)
+	return &t, nil
+}
+
+func (s *PGStore) ListAdvisorThreads(status string) []domain.AdvisorThread {
+	query := `SELECT id, title, topic, playbook_key, status, created_at, updated_at, last_message_at
+		FROM advisor_threads`
+	var args []interface{}
+	if status != "" {
+		query += ` WHERE status = $1`
+		args = append(args, status)
+	}
+	query += ` ORDER BY updated_at DESC`
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		s.logger.Error("list advisor threads", "error", err)
+		return nil
+	}
+	defer rows.Close()
+	var out []domain.AdvisorThread
+	for rows.Next() {
+		var t domain.AdvisorThread
+		var playbook sql.NullString
+		var lastMsg sql.NullTime
+		if err := rows.Scan(&t.ID, &t.Title, &t.Topic, &playbook, &t.Status,
+			&t.CreatedAt, &t.UpdatedAt, &lastMsg); err != nil {
+			s.logger.Error("scan advisor thread", "error", err)
+			continue
+		}
+		t.PlaybookKey = playbook.String
+		if lastMsg.Valid {
+			lm := lastMsg.Time
+			t.LastMessageAt = &lm
+		}
+		out = append(out, t)
+	}
+	return out
+}
+
+func (s *PGStore) UpdateAdvisorThread(t *domain.AdvisorThread) error {
+	t.UpdatedAt = time.Now()
+	_, err := s.db.Exec(`UPDATE advisor_threads
+		SET title = $2, status = $3, metadata = $4, updated_at = $5
+		WHERE id = $1`,
+		t.ID, t.Title, t.Status, nullJSON(t.Metadata), t.UpdatedAt)
+	if err != nil {
+		return fmt.Errorf("update advisor thread: %w", err)
+	}
+	return nil
+}
+
+func (s *PGStore) AppendAdvisorMessage(m *domain.AdvisorMessage) error {
+	if m.CreatedAt.IsZero() {
+		m.CreatedAt = time.Now()
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`INSERT INTO advisor_messages
+		(id, thread_id, role, content, tool_calls, model, tokens_in, tokens_out, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+		m.ID, m.ThreadID, m.Role, m.Content, nullJSON(m.ToolCalls),
+		nullStr(m.Model), nullInt(m.TokensIn), nullInt(m.TokensOut), m.CreatedAt); err != nil {
+		return fmt.Errorf("insert advisor message: %w", err)
+	}
+	if _, err := tx.Exec(`UPDATE advisor_threads
+		SET last_message_at = $2, updated_at = $2 WHERE id = $1`,
+		m.ThreadID, m.CreatedAt); err != nil {
+		return fmt.Errorf("bump thread: %w", err)
+	}
+	return tx.Commit()
+}
+
+func (s *PGStore) ListAdvisorMessages(threadID string) []domain.AdvisorMessage {
+	rows, err := s.db.Query(`SELECT id, thread_id, role, content, tool_calls::text,
+		model, tokens_in, tokens_out, created_at
+		FROM advisor_messages WHERE thread_id = $1 ORDER BY created_at ASC`, threadID)
+	if err != nil {
+		s.logger.Error("list advisor messages", "error", err)
+		return nil
+	}
+	defer rows.Close()
+	var out []domain.AdvisorMessage
+	for rows.Next() {
+		var m domain.AdvisorMessage
+		var tools sql.NullString
+		var model sql.NullString
+		var tIn, tOut sql.NullInt64
+		if err := rows.Scan(&m.ID, &m.ThreadID, &m.Role, &m.Content,
+			&tools, &model, &tIn, &tOut, &m.CreatedAt); err != nil {
+			s.logger.Error("scan advisor message", "error", err)
+			continue
+		}
+		if tools.Valid {
+			m.ToolCalls = json.RawMessage(tools.String)
+		}
+		m.Model = model.String
+		m.TokensIn = int(tIn.Int64)
+		m.TokensOut = int(tOut.Int64)
+		out = append(out, m)
+	}
+	return out
+}
+
+// ─── PG helpers (advisor) ───────────────────────────────────
+
+func nullJSON(v json.RawMessage) interface{} {
+	if len(v) == 0 {
+		return nil
+	}
+	return string(v)
+}
+
+func nullInt(v int) interface{} {
+	if v == 0 {
+		return nil
+	}
+	return v
 }

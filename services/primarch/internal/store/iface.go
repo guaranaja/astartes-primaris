@@ -127,4 +127,12 @@ type DataStore interface {
 
 	// ─── Market Bars ───────────────────────────────────────
 	UpsertBar(b *domain.MarketBar) (created bool, err error)
+
+	// ─── Advisor ───────────────────────────────────────────
+	CreateAdvisorThread(t *domain.AdvisorThread) error
+	GetAdvisorThread(id string) (*domain.AdvisorThread, error)
+	ListAdvisorThreads(status string) []domain.AdvisorThread
+	UpdateAdvisorThread(t *domain.AdvisorThread) error
+	AppendAdvisorMessage(m *domain.AdvisorMessage) error
+	ListAdvisorMessages(threadID string) []domain.AdvisorMessage
 }

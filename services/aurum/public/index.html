@@ -42,6 +42,9 @@
       <button class="nav-btn" data-view="arsenal" data-key="8">
         <span class="nav-key">8</span> Arsenal
       </button>
+      <button class="nav-btn" data-view="advisor" data-key="9">
+        <span class="nav-key">9</span> Advisor
+      </button>
     </nav>
     <div class="topbar-right">
       <div class="connection-status" id="connStatus">
@@ -694,6 +697,59 @@
             <div class="empty-state">Add holdings and click Analyze to get wheel strategy recommendations</div>
           </div>
         </div>
+      </div>
+    </div>
+
+    <!-- ═══ VIEW: Advisor ════════════════════════════════════ -->
+    <div class="view" id="view-advisor">
+      <div class="advisor-layout">
+
+        <!-- Sidebar: threads + playbooks -->
+        <aside class="advisor-sidebar">
+          <div class="advisor-sidebar-header">
+            <span class="advisor-sidebar-title">Threads</span>
+            <button class="btn btn-sm btn-primary" onclick="App.newAdvisorChat()">+ New</button>
+          </div>
+          <div id="advisorThreadList" class="advisor-thread-list">
+            <div class="empty-state">Loading...</div>
+          </div>
+
+          <div class="advisor-sidebar-header" style="margin-top:20px">
+            <span class="advisor-sidebar-title">Playbooks</span>
+          </div>
+          <div id="advisorPlaybooks" class="advisor-playbooks">
+            <div class="empty-state">Loading...</div>
+          </div>
+
+          <div class="advisor-sidebar-footer" id="advisorStatus">
+            <span class="status-dot"></span>
+            <span>Checking advisor...</span>
+          </div>
+        </aside>
+
+        <!-- Main: active thread view -->
+        <section class="advisor-main">
+          <div class="advisor-thread-header" id="advisorThreadHeader">
+            <div class="advisor-empty-thread">
+              <h2>Council Advisor</h2>
+              <p>Strategic thinking partner for scaling your trading business.<br>
+              Start a new chat, or pick a playbook from the sidebar to tackle a specific decision.</p>
+              <div class="advisor-empty-hints">
+                <div class="advisor-hint">Grounded in your actual accounts, payouts, and finances</div>
+                <div class="advisor-hint">Not a CPA or attorney — decisions stay yours</div>
+                <div class="advisor-hint">Every thread saved to Postgres, resumable</div>
+              </div>
+            </div>
+          </div>
+          <div id="advisorMessages" class="advisor-messages"></div>
+          <div class="advisor-composer" id="advisorComposer" style="display:none">
+            <textarea id="advisorInput" class="advisor-input" placeholder="Ask the Council..." rows="3"></textarea>
+            <div class="advisor-composer-actions">
+              <span class="advisor-hint-text" id="advisorHint">Shift+Enter for newline</span>
+              <button class="btn btn-primary" id="advisorSendBtn" onclick="App.sendAdvisorMessage()">Send</button>
+            </div>
+          </div>
+        </section>
       </div>
     </div>
   </main>

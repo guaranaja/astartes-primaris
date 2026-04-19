@@ -29,6 +29,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/guaranaja/astartes-primaris/services/primarch/internal/advisor"
 	"github.com/guaranaja/astartes-primaris/services/primarch/internal/api"
 	"github.com/guaranaja/astartes-primaris/services/primarch/internal/cfo"
 	"github.com/guaranaja/astartes-primaris/services/primarch/internal/config"
@@ -107,6 +108,12 @@ func main() {
 			councilCFO := cfo.NewCouncilCFO(fireflyClient, monarchClient, logger)
 			srv.SetCFO(councilCFO)
 		}
+	}
+
+	// Claude advisor — enabled only if CLAUDE_API_KEY is set
+	if advisorClient := advisor.NewClient(logger); advisorClient != nil {
+		srv.SetAdvisor(advisorClient)
+		fmt.Println("  Advisor:        connected (Claude)")
 	}
 
 	// Seed initial data

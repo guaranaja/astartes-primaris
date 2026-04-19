@@ -38,6 +38,8 @@ type Store struct {
 	bars                map[string]*domain.MarketBar // key: symbol:timeframe:time
 	payoutAllocations   []domain.PayoutAllocation
 	propFees            []domain.PropFee
+	advisorThreads      map[string]*domain.AdvisorThread
+	advisorMessages     []domain.AdvisorMessage
 }
 
 // New creates a new empty store.
@@ -59,6 +61,7 @@ func New() *Store {
 		trades:      make(map[string]*domain.Trade),
 		positions:   make(map[string]*domain.Position),
 		bars:        make(map[string]*domain.MarketBar),
+		advisorThreads: make(map[string]*domain.AdvisorThread),
 	}
 }
 
@@ -686,4 +689,87 @@ func (s *Store) UpsertBar(b *domain.MarketBar) (bool, error) {
 	cp := *b
 	s.bars[key] = &cp
 	return !exists, nil
+}
+
+// ─── Advisor ────────────────────────────────────────────────
+
+func (s *Store) CreateAdvisorThread(t *domain.AdvisorThread) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if t.CreatedAt.IsZero() {
+		t.CreatedAt = time.Now()
+	}
+	t.UpdatedAt = t.CreatedAt
+	cp := *t
+	s.advisorThreads[t.ID] = &cp
+	return nil
+}
+
+func (s *Store) GetAdvisorThread(id string) (*domain.AdvisorThread, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	t, ok := s.advisorThreads[id]
+	if !ok {
+		return nil, fmt.Errorf("advisor thread %s not found", id)
+	}
+	cp := *t
+	for _, m := range s.advisorMessages {
+		if m.ThreadID == id {
+			cp.Messages = append(cp.Messages, m)
+		}
+	}
+	return &cp, nil
+}
+
+func (s *Store) ListAdvisorThreads(status string) []domain.AdvisorThread {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]domain.AdvisorThread, 0, len(s.advisorThreads))
+	for _, t := range s.advisorThreads {
+		if status != "" && t.Status != status {
+			continue
+		}
+		out = append(out, *t)
+	}
+	return out
+}
+
+func (s *Store) UpdateAdvisorThread(t *domain.AdvisorThread) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.advisorThreads[t.ID]; !ok {
+		return fmt.Errorf("advisor thread %s not found", t.ID)
+	}
+	t.UpdatedAt = time.Now()
+	cp := *t
+	s.advisorThreads[t.ID] = &cp
+	return nil
+}
+
+func (s *Store) AppendAdvisorMessage(m *domain.AdvisorMessage) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.advisorThreads[m.ThreadID]; !ok {
+		return fmt.Errorf("advisor thread %s not found", m.ThreadID)
+	}
+	if m.CreatedAt.IsZero() {
+		m.CreatedAt = time.Now()
+	}
+	s.advisorMessages = append(s.advisorMessages, *m)
+	now := m.CreatedAt
+	s.advisorThreads[m.ThreadID].LastMessageAt = &now
+	s.advisorThreads[m.ThreadID].UpdatedAt = now
+	return nil
+}
+
+func (s *Store) ListAdvisorMessages(threadID string) []domain.AdvisorMessage {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var out []domain.AdvisorMessage
+	for _, m := range s.advisorMessages {
+		if m.ThreadID == threadID {
+			out = append(out, m)
+		}
+	}
+	return out
 }

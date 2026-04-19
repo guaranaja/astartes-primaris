@@ -979,6 +979,281 @@ const App = {
     }).join('');
   },
 
+  // ─── Advisor ───────────────────────────────────────────
+
+  async loadAdvisor() {
+    try {
+      const [status, threads, playbooks] = await Promise.all([
+        this.api('/council/advisor/status').catch(() => ({ available: false })),
+        this.api('/council/advisor/threads').catch(() => []),
+        this.api('/council/advisor/playbooks').catch(() => []),
+      ]);
+      this.state.advisorStatus = status;
+      this.state.advisorThreads = threads || [];
+      this.state.advisorPlaybooks = playbooks || [];
+      this.renderAdvisorSidebar();
+      this.renderAdvisorStatus();
+      this.bindAdvisorInput();
+    } catch (e) {
+      console.error('loadAdvisor', e);
+    }
+  },
+
+  renderAdvisorStatus() {
+    const el = document.getElementById('advisorStatus');
+    if (!el) return;
+    const s = this.state.advisorStatus || {};
+    if (s.available) {
+      const cfoPart = s.cfo ? ' · CFO connected' : ' · CFO offline';
+      el.innerHTML = `<span class="status-dot" style="background:var(--green);box-shadow:0 0 6px var(--green)"></span><span>${esc(s.model || 'Claude')}${cfoPart}</span>`;
+    } else {
+      el.innerHTML = `<span class="status-dot" style="background:var(--red)"></span><span>Advisor offline — set CLAUDE_API_KEY</span>`;
+    }
+  },
+
+  renderAdvisorSidebar() {
+    const threadEl = document.getElementById('advisorThreadList');
+    const threads = this.state.advisorThreads || [];
+    if (!threads.length) {
+      threadEl.innerHTML = '<div class="empty-state" style="font-size:11px">No threads yet</div>';
+    } else {
+      const current = this.state.advisorCurrentId;
+      const topicIcon = { chat: '💬', playbook: '📋', milestone: '◉' };
+      threadEl.innerHTML = threads.map(t => {
+        const stamp = t.last_message_at || t.updated_at || t.created_at;
+        const when = stamp ? this.advisorTimeAgo(stamp) : '';
+        return `
+          <div class="advisor-thread-card ${t.id === current ? 'active' : ''}"
+               onclick="App.openAdvisorThread('${esc(t.id)}')">
+            <div class="advisor-thread-card-title">
+              <span class="advisor-thread-icon">${topicIcon[t.topic] || '•'}</span>
+              ${esc(t.title)}
+            </div>
+            <div class="advisor-thread-card-meta">${esc(t.topic)}${when ? ' · ' + when : ''}</div>
+          </div>`;
+      }).join('');
+    }
+
+    const pbEl = document.getElementById('advisorPlaybooks');
+    const pbs = this.state.advisorPlaybooks || [];
+    pbEl.innerHTML = pbs.map(p => `
+      <div class="advisor-playbook-card" onclick="App.startAdvisorPlaybook('${esc(p.key)}')">
+        <div class="advisor-playbook-title">${esc(p.title)}</div>
+        <div class="advisor-playbook-brief">${esc(p.brief)}</div>
+      </div>
+    `).join('');
+  },
+
+  advisorTimeAgo(ts) {
+    const then = new Date(ts).getTime();
+    const secs = Math.floor((Date.now() - then) / 1000);
+    if (secs < 60) return 'just now';
+    if (secs < 3600) return Math.floor(secs / 60) + 'm';
+    if (secs < 86400) return Math.floor(secs / 3600) + 'h';
+    return Math.floor(secs / 86400) + 'd';
+  },
+
+  async newAdvisorChat() {
+    if (!this.state.advisorStatus || !this.state.advisorStatus.available) {
+      this.flash('Advisor not configured', 'error');
+      return;
+    }
+    try {
+      const t = await this.api('/council/advisor/threads', {
+        method: 'POST',
+        body: { topic: 'chat' },
+      });
+      this.state.advisorThreads = [t, ...(this.state.advisorThreads || [])];
+      this.renderAdvisorSidebar();
+      this.openAdvisorThread(t.id);
+    } catch (e) {
+      this.flash(e.message, 'error');
+    }
+  },
+
+  async startAdvisorPlaybook(key) {
+    if (!this.state.advisorStatus || !this.state.advisorStatus.available) {
+      this.flash('Advisor not configured', 'error');
+      return;
+    }
+    try {
+      const t = await this.api('/council/advisor/threads', {
+        method: 'POST',
+        body: { topic: 'playbook', playbook_key: key },
+      });
+      this.state.advisorThreads = [t, ...(this.state.advisorThreads || [])];
+      this.renderAdvisorSidebar();
+      this.openAdvisorThread(t.id);
+      this.flash('Advisor is thinking about your first turn...', 'info');
+      // Kickoff runs server-side async; poll briefly for the first assistant turn
+      this.pollAdvisorThread(t.id, 20);
+    } catch (e) {
+      this.flash(e.message, 'error');
+    }
+  },
+
+  async openAdvisorThread(id) {
+    this.state.advisorCurrentId = id;
+    try {
+      const t = await this.api('/council/advisor/threads/' + encodeURIComponent(id));
+      this.state.advisorCurrentThread = t;
+      this.renderAdvisorSidebar();
+      this.renderAdvisorThread(t);
+    } catch (e) {
+      this.flash(e.message, 'error');
+    }
+  },
+
+  renderAdvisorThread(t) {
+    const header = document.getElementById('advisorThreadHeader');
+    const msgs = document.getElementById('advisorMessages');
+    const composer = document.getElementById('advisorComposer');
+
+    header.innerHTML = `
+      <div class="advisor-thread-title">
+        <h2>${esc(t.title)}</h2>
+        <span class="advisor-thread-meta">${esc(t.topic)}${t.playbook_key ? ' · ' + esc(t.playbook_key) : ''}</span>
+      </div>
+      <div class="advisor-thread-actions">
+        <button class="btn btn-sm" onclick="App.archiveAdvisorThread('${esc(t.id)}')">Archive</button>
+      </div>`;
+
+    const list = t.messages || [];
+    if (!list.length) {
+      msgs.innerHTML = '<div class="empty-state" style="margin:40px 0">Thinking...</div>';
+    } else {
+      msgs.innerHTML = list.map(m => this.renderAdvisorMessage(m)).join('');
+    }
+    composer.style.display = 'flex';
+    msgs.scrollTop = msgs.scrollHeight;
+  },
+
+  renderAdvisorMessage(m) {
+    const isUser = m.role === 'user';
+    const who = isUser ? 'You' : 'Advisor';
+    const body = this.markdownLite(m.content || '');
+    const tokens = m.tokens_out ? `<span class="advisor-msg-tokens">${m.tokens_in || 0} in / ${m.tokens_out} out</span>` : '';
+    return `
+      <div class="advisor-msg ${isUser ? 'user' : 'assistant'}">
+        <div class="advisor-msg-head">
+          <span class="advisor-msg-who">${who}</span>
+          <span class="advisor-msg-time">${m.created_at ? this.advisorTimeAgo(m.created_at) : ''}</span>
+          ${tokens}
+        </div>
+        <div class="advisor-msg-body">${body}</div>
+      </div>`;
+  },
+
+  // Minimal markdown renderer — bold, italic, inline code, headers, lists, line breaks.
+  // Deliberately simple to avoid pulling in a library.
+  markdownLite(text) {
+    let s = esc(text);
+    // code blocks first
+    s = s.replace(/```([\s\S]*?)```/g, (_, code) => `<pre class="advisor-code">${code}</pre>`);
+    // inline code
+    s = s.replace(/`([^`]+)`/g, '<code>$1</code>');
+    // headers (### ## #)
+    s = s.replace(/^### (.*)$/gm, '<h4>$1</h4>');
+    s = s.replace(/^## (.*)$/gm, '<h3>$1</h3>');
+    s = s.replace(/^# (.*)$/gm, '<h2>$1</h2>');
+    // bold + italic
+    s = s.replace(/\*\*([^\*]+)\*\*/g, '<strong>$1</strong>');
+    s = s.replace(/(^|[^\*])\*([^\*\n]+)\*/g, '$1<em>$2</em>');
+    // bullets: lines starting with "- " or "* "
+    s = s.replace(/(?:^|\n)([\-\*] .+(?:\n[\-\*] .+)*)/g, (match, block) => {
+      const items = block.trim().split(/\n/).map(l => '<li>' + l.replace(/^[\-\*] /, '') + '</li>').join('');
+      return '\n<ul>' + items + '</ul>';
+    });
+    // paragraphs — collapse consecutive single newlines into <br>, double into paragraph break
+    s = s.replace(/\n\n+/g, '</p><p>');
+    s = s.replace(/\n(?!<)/g, '<br>');
+    return '<p>' + s + '</p>';
+  },
+
+  bindAdvisorInput() {
+    const input = document.getElementById('advisorInput');
+    if (!input || input._bound) return;
+    input._bound = true;
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        this.sendAdvisorMessage();
+      }
+    });
+  },
+
+  async sendAdvisorMessage() {
+    const input = document.getElementById('advisorInput');
+    const btn = document.getElementById('advisorSendBtn');
+    const hint = document.getElementById('advisorHint');
+    const id = this.state.advisorCurrentId;
+    if (!id) {
+      this.flash('Open a thread first', 'info');
+      return;
+    }
+    const content = (input.value || '').trim();
+    if (!content) return;
+
+    // Optimistic local render
+    const optimistic = { role: 'user', content, created_at: new Date().toISOString() };
+    const current = this.state.advisorCurrentThread || { messages: [] };
+    current.messages = [...(current.messages || []), optimistic];
+    this.renderAdvisorThread(current);
+
+    input.value = '';
+    input.disabled = true;
+    btn.disabled = true;
+    hint.textContent = 'Advisor is thinking...';
+
+    try {
+      const reply = await this.api(`/council/advisor/threads/${encodeURIComponent(id)}/messages`, {
+        method: 'POST',
+        body: { content },
+      });
+      // Replace the optimistic history with the server truth
+      await this.openAdvisorThread(id);
+    } catch (e) {
+      this.flash(e.message, 'error');
+    } finally {
+      input.disabled = false;
+      btn.disabled = false;
+      hint.textContent = 'Shift+Enter for newline';
+      input.focus();
+    }
+  },
+
+  async pollAdvisorThread(id, maxAttempts) {
+    for (let i = 0; i < maxAttempts; i++) {
+      await new Promise(r => setTimeout(r, 1500));
+      try {
+        const t = await this.api('/council/advisor/threads/' + encodeURIComponent(id));
+        const hasAssistant = (t.messages || []).some(m => m.role === 'assistant');
+        if (hasAssistant && this.state.advisorCurrentId === id) {
+          this.state.advisorCurrentThread = t;
+          this.renderAdvisorThread(t);
+          return;
+        }
+      } catch (e) { /* keep polling */ }
+    }
+  },
+
+  async archiveAdvisorThread(id) {
+    if (!confirm('Archive this thread?')) return;
+    try {
+      await this.api('/council/advisor/threads/' + encodeURIComponent(id), { method: 'DELETE' });
+      this.state.advisorThreads = (this.state.advisorThreads || []).filter(t => t.id !== id);
+      if (this.state.advisorCurrentId === id) {
+        this.state.advisorCurrentId = null;
+        document.getElementById('advisorThreadHeader').innerHTML = '<div class="advisor-empty-thread"><h2>Thread archived</h2><p>Pick another from the sidebar.</p></div>';
+        document.getElementById('advisorMessages').innerHTML = '';
+        document.getElementById('advisorComposer').style.display = 'none';
+      }
+      this.renderAdvisorSidebar();
+    } catch (e) {
+      this.flash(e.message, 'error');
+    }
+  },
+
   renderPhaseTracker() {
     const rm = this.state.roadmap;
     if (!rm) return;
@@ -2727,6 +3002,9 @@ const App = {
     if (view === 'administratum') {
       this.loadAdministratum();
     }
+    if (view === 'advisor') {
+      this.loadAdvisor();
+    }
   },
 
   switchAdminTab(sub) {
@@ -2754,8 +3032,8 @@ const App = {
       }
 
       // Number keys switch views
-      if (e.key >= '1' && e.key <= '8') {
-        const views = ['throne', 'tactical', 'forge', 'performance', 'council', 'administratum', 'prop', 'arsenal'];
+      if (e.key >= '1' && e.key <= '9') {
+        const views = ['throne', 'tactical', 'forge', 'performance', 'council', 'administratum', 'prop', 'arsenal', 'advisor'];
         this.switchView(views[parseInt(e.key) - 1]);
         return;
       }
@@ -2818,6 +3096,7 @@ const App = {
       { icon: '§', label: 'Administratum (Personal Finance)', key: '6', action: () => this.switchView('administratum') },
       { icon: '⊕', label: 'Prop Desk', key: '7', action: () => this.switchView('prop') },
       { icon: '⎔', label: 'Arsenal (Holdings + Wheel)', key: '8', action: () => this.switchView('arsenal') },
+      { icon: '☌', label: 'Advisor (Council)', key: '9', action: () => this.switchView('advisor') },
       { icon: '+', label: 'Create Fortress', key: '', action: () => this.createFortress() },
       { icon: '⊘', label: 'Kill Switch', key: 'Ctrl+K', action: () => this.killSwitch() },
       { icon: '↻', label: 'Refresh Data', key: 'R', action: () => this.loadData() },

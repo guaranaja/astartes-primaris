@@ -710,20 +710,22 @@ func (s *Server) handleMarkCombinePassed(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	s.logger.Info("combine passed", "account", id, "firm", a.PropFirm, "pass_date", a.CombinePassDate)
+	data := map[string]interface{}{
+		"account_id":   a.ID,
+		"account_name": a.Name,
+		"prop_firm":    a.PropFirm,
+		"pass_date":    a.CombinePassDate,
+	}
 	if s.hub != nil {
 		s.hub.Broadcast(domain.SystemEvent{
 			ID:        fmt.Sprintf("combine-passed-%s-%d", a.ID, time.Now().UnixNano()),
 			Service:   "primarch",
 			Event:     "combine.passed",
 			Timestamp: time.Now(),
-			Data: map[string]interface{}{
-				"account_id":   a.ID,
-				"account_name": a.Name,
-				"prop_firm":    a.PropFirm,
-				"pass_date":    a.CombinePassDate,
-			},
+			Data:      data,
 		})
 	}
+	s.TriggerMilestone("combine.passed", data)
 	writeJSON(w, http.StatusOK, a)
 }
 
@@ -761,20 +763,22 @@ func (s *Server) handleMarkCombineFunded(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	s.logger.Info("rubicon crossed — account funded", "account", id, "firm", a.PropFirm, "funded_date", a.FundedDate)
+	data := map[string]interface{}{
+		"account_id":   a.ID,
+		"account_name": a.Name,
+		"prop_firm":    a.PropFirm,
+		"funded_date":  a.FundedDate,
+	}
 	if s.hub != nil {
 		s.hub.Broadcast(domain.SystemEvent{
 			ID:        fmt.Sprintf("rubicon-%s-%d", a.ID, time.Now().UnixNano()),
 			Service:   "primarch",
 			Event:     "account.funded",
 			Timestamp: time.Now(),
-			Data: map[string]interface{}{
-				"account_id":   a.ID,
-				"account_name": a.Name,
-				"prop_firm":    a.PropFirm,
-				"funded_date":  a.FundedDate,
-			},
+			Data:      data,
 		})
 	}
+	s.TriggerMilestone("account.funded", data)
 	writeJSON(w, http.StatusOK, a)
 }
 

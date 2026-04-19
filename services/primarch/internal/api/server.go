@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/guaranaja/astartes-primaris/services/primarch/internal/advisor"
 	"github.com/guaranaja/astartes-primaris/services/primarch/internal/cfo"
 	"github.com/guaranaja/astartes-primaris/services/primarch/internal/domain"
 	"github.com/guaranaja/astartes-primaris/services/primarch/internal/scheduler"
@@ -23,6 +24,7 @@ type Server struct {
 	hub       *WSHub
 	mux       *http.ServeMux
 	cfo       *cfo.CouncilCFO
+	advisor   *advisor.Client
 }
 
 // NewServer creates the API server with a new WebSocket hub.
@@ -132,11 +134,19 @@ func (s *Server) routes() {
 
 	// CFO (unified finance)
 	s.registerCFORoutes()
+
+	// Advisor (Claude-powered strategic conversations)
+	s.registerAdvisorRoutes()
 }
 
 // SetCFO configures the unified finance integration.
 func (s *Server) SetCFO(c *cfo.CouncilCFO) {
 	s.cfo = c
+}
+
+// SetAdvisor configures the Claude advisor client (nil-safe).
+func (s *Server) SetAdvisor(a *advisor.Client) {
+	s.advisor = a
 }
 
 // ─── Health & Status ────────────────────────────────────────
