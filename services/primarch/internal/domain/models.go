@@ -457,6 +457,12 @@ type Holding struct {
 	AvgCost     float64   `json:"avg_cost"`
 	AcquiredAt  string    `json:"acquired_at,omitempty"` // YYYY-MM-DD
 	Notes       string    `json:"notes,omitempty"`
+	// Source identifies where this row came from. "manual" = user-entered via
+	// Arsenal (default); "tastytrade" = auto-synced from a brokerage position.
+	// Synced rows are managed by the wheel service and safe to overwrite on
+	// each tick; manual rows are never touched by sync.
+	Source      string    `json:"source,omitempty"`
+	SourceID    string    `json:"source_id,omitempty"`  // brokerage account + symbol
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
 }

@@ -3517,20 +3517,26 @@ App.renderHoldings = function() {
     tbody.innerHTML = '<tr><td colspan="7" class="empty-state">No holdings — add your stock positions</td></tr>';
     return;
   }
-  tbody.innerHTML = h.map(pos => `
-    <tr>
-      <td><strong>${esc(pos.symbol)}</strong></td>
-      <td>${pos.quantity}</td>
-      <td>$${Number(pos.avg_cost).toFixed(2)}</td>
-      <td>$${(pos.quantity * pos.avg_cost).toFixed(2)}</td>
-      <td>${Math.floor(pos.quantity / 100)}</td>
-      <td>${esc(pos.notes || '')}</td>
-      <td>
-        <button class="btn btn-sm" onclick="App.editHolding('${pos.id}')">Edit</button>
-        <button class="btn btn-sm" onclick="App.deleteHolding('${pos.id}')">Del</button>
-      </td>
-    </tr>
-  `).join('');
+  tbody.innerHTML = h.map(pos => {
+    const isSynced = pos.source === 'tastytrade';
+    const sourceTag = isSynced
+      ? '<span class="expense-autopay" style="background:rgba(201,168,76,0.15);color:var(--gold);margin-left:6px">Tastytrade</span>'
+      : '';
+    const actions = isSynced
+      ? '<span style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:0.8px">auto-synced</span>'
+      : `<button class="btn btn-sm" onclick="App.editHolding('${pos.id}')">Edit</button>
+         <button class="btn btn-sm" onclick="App.deleteHolding('${pos.id}')">Del</button>`;
+    return `
+      <tr>
+        <td><strong>${esc(pos.symbol)}</strong>${sourceTag}</td>
+        <td>${pos.quantity}</td>
+        <td>$${Number(pos.avg_cost).toFixed(2)}</td>
+        <td>$${(pos.quantity * pos.avg_cost).toFixed(2)}</td>
+        <td>${Math.floor(pos.quantity / 100)}</td>
+        <td>${esc(pos.notes || '')}</td>
+        <td>${actions}</td>
+      </tr>`;
+  }).join('');
 };
 
 App.addHolding = function() {

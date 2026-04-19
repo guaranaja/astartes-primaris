@@ -300,6 +300,11 @@ func (s *PGStore) ensureSchema() {
 			created_at  TIMESTAMPTZ DEFAULT now(),
 			updated_at  TIMESTAMPTZ DEFAULT now()
 		)`,
+		// Source columns added later — keep rollout backward compatible.
+		`ALTER TABLE holdings ADD COLUMN IF NOT EXISTS source TEXT`,
+		`ALTER TABLE holdings ADD COLUMN IF NOT EXISTS source_id TEXT`,
+		`UPDATE holdings SET source = 'manual' WHERE source IS NULL`,
+		`CREATE INDEX IF NOT EXISTS holdings_source_idx ON holdings(source, symbol)`,
 
 		// ── Wheel Strategy ──
 		`CREATE TABLE IF NOT EXISTS wheel_cycles (
@@ -1725,7 +1730,9 @@ func (s *PGStore) ListPropFees(accountID string) []domain.PropFee {
 // ─── Holdings ────────────────────────────────────────────
 
 func (s *PGStore) ListHoldings() []domain.Holding {
-	rows, err := s.db.Query(`SELECT id, symbol, quantity, avg_cost, acquired_at, notes, created_at, updated_at FROM holdings ORDER BY symbol`)
+	rows, err := s.db.Query(`SELECT id, symbol, quantity, avg_cost, acquired_at, notes,
+		COALESCE(source, 'manual'), COALESCE(source_id, ''), created_at, updated_at
+		FROM holdings ORDER BY symbol`)
 	if err != nil {
 		s.logger.Error("list holdings", "error", err)
 		return nil
@@ -1736,7 +1743,8 @@ func (s *PGStore) ListHoldings() []domain.Holding {
 	for rows.Next() {
 		var h domain.Holding
 		var acq, notes sql.NullString
-		if err := rows.Scan(&h.ID, &h.Symbol, &h.Quantity, &h.AvgCost, &acq, &notes, &h.CreatedAt, &h.UpdatedAt); err != nil {
+		if err := rows.Scan(&h.ID, &h.Symbol, &h.Quantity, &h.AvgCost, &acq, &notes,
+			&h.Source, &h.SourceID, &h.CreatedAt, &h.UpdatedAt); err != nil {
 			s.logger.Error("scan holding", "error", err)
 			continue
 		}
@@ -1751,8 +1759,13 @@ func (s *PGStore) CreateHolding(h *domain.Holding) error {
 	now := time.Now()
 	h.CreatedAt = now
 	h.UpdatedAt = now
-	_, err := s.db.Exec(`INSERT INTO holdings (id, symbol, quantity, avg_cost, acquired_at, notes, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-		h.ID, h.Symbol, h.Quantity, h.AvgCost, nullStr(h.AcquiredAt), nullStr(h.Notes), h.CreatedAt, h.UpdatedAt)
+	if h.Source == "" {
+		h.Source = "manual"
+	}
+	_, err := s.db.Exec(`INSERT INTO holdings (id, symbol, quantity, avg_cost, acquired_at, notes, source, source_id, created_at, updated_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+		h.ID, h.Symbol, h.Quantity, h.AvgCost, nullStr(h.AcquiredAt), nullStr(h.Notes),
+		h.Source, nullStr(h.SourceID), h.CreatedAt, h.UpdatedAt)
 	return err
 }
 
@@ -1778,6 +1791,47 @@ func (s *PGStore) DeleteHolding(id string) error {
 		return fmt.Errorf("holding %q not found", id)
 	}
 	return nil
+}
+
+// UpsertHoldingBySource looks up an existing row by (source, symbol) and
+// updates it in place; otherwise inserts a new one. Used by the wheel
+// service's brokerage sync loop — never writes manual rows.
+func (s *PGStore) UpsertHoldingBySource(h *domain.Holding) error {
+	if h.Source == "" {
+		return fmt.Errorf("source required for UpsertHoldingBySource")
+	}
+	now := time.Now()
+	var existingID string
+	err := s.db.QueryRow(`SELECT id FROM holdings WHERE source = $1 AND symbol = $2`, h.Source, h.Symbol).Scan(&existingID)
+	if err == sql.ErrNoRows {
+		if h.ID == "" {
+			h.ID = fmt.Sprintf("%s-%s-%d", h.Source, h.Symbol, now.UnixNano())
+		}
+		return s.CreateHolding(h)
+	}
+	if err != nil {
+		return fmt.Errorf("lookup existing holding: %w", err)
+	}
+	h.ID = existingID
+	h.UpdatedAt = now
+	_, err = s.db.Exec(`UPDATE holdings SET quantity=$2, avg_cost=$3, acquired_at=$4, notes=$5, source_id=$6, updated_at=$7 WHERE id=$1`,
+		h.ID, h.Quantity, h.AvgCost, nullStr(h.AcquiredAt), nullStr(h.Notes), nullStr(h.SourceID), h.UpdatedAt)
+	return err
+}
+
+// DeleteHoldingsBySourceExcept removes all rows for the given source whose
+// symbol is not in keepSymbols. Used to prune positions that have closed.
+func (s *PGStore) DeleteHoldingsBySourceExcept(source string, keepSymbols []string) (int, error) {
+	if source == "" {
+		return 0, fmt.Errorf("source required")
+	}
+	keep := pq.StringArray(keepSymbols)
+	res, err := s.db.Exec(`DELETE FROM holdings WHERE source = $1 AND NOT (symbol = ANY($2::text[]))`, source, keep)
+	if err != nil {
+		return 0, fmt.Errorf("delete stale holdings: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	return int(n), nil
 }
 
 // ─── Commands (Engine Protocol) ────────────────────────────

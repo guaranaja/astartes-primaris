@@ -496,6 +496,50 @@ func (s *Store) UpdateHolding(h *domain.Holding) error {
 	return nil
 }
 
+func (s *Store) UpsertHoldingBySource(h *domain.Holding) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if h.Source == "" {
+		return fmt.Errorf("source required")
+	}
+	now := time.Now()
+	for _, existing := range s.holdings {
+		if existing.Source == h.Source && existing.Symbol == h.Symbol {
+			h.ID = existing.ID
+			h.CreatedAt = existing.CreatedAt
+			h.UpdatedAt = now
+			cp := *h
+			s.holdings[h.ID] = &cp
+			return nil
+		}
+	}
+	if h.ID == "" {
+		h.ID = fmt.Sprintf("%s-%s-%d", h.Source, h.Symbol, now.UnixNano())
+	}
+	h.CreatedAt = now
+	h.UpdatedAt = now
+	cp := *h
+	s.holdings[h.ID] = &cp
+	return nil
+}
+
+func (s *Store) DeleteHoldingsBySourceExcept(source string, keepSymbols []string) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	keep := map[string]bool{}
+	for _, sym := range keepSymbols {
+		keep[sym] = true
+	}
+	n := 0
+	for id, h := range s.holdings {
+		if h.Source == source && !keep[h.Symbol] {
+			delete(s.holdings, id)
+			n++
+		}
+	}
+	return n, nil
+}
+
 func (s *Store) DeleteHolding(id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

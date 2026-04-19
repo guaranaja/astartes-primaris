@@ -122,6 +122,13 @@ func (s *Service) RunOnce(ctx context.Context) {
 		s.logger.Warn("wheel config missing", "error", err)
 		return
 	}
+
+	// Sync tastytrade equity positions into Arsenal holdings before the scan
+	// so CC candidates reflect the real portfolio. Manual rows are never touched.
+	if err := s.syncPositionsToHoldings(ctx); err != nil {
+		s.logger.Warn("tastytrade position sync failed", "error", err)
+	}
+
 	watchlist := s.store.ListWheelWatchlist()
 	holdings := s.store.ListHoldings()
 
@@ -213,6 +220,95 @@ func (s *Service) reviewWithClaude(ctx context.Context, cands []Candidate, cfg *
 		}
 	}
 	// Re-sort after review-score adjustments.
+}
+
+// syncPositionsToHoldings pulls tastytrade equity positions and upserts them
+// into Arsenal holdings keyed on (source=tastytrade, symbol). Option positions
+// are ignored. Stale synced rows (positions no longer held) are deleted.
+// Manual holdings are never touched.
+func (s *Service) syncPositionsToHoldings(ctx context.Context) error {
+	s.mu.Lock()
+	accts := s.accountCache
+	s.mu.Unlock()
+	if len(accts) == 0 {
+		found, err := s.tasty.ListAccountNumbers(ctx)
+		if err != nil {
+			return fmt.Errorf("list accounts: %w", err)
+		}
+		s.mu.Lock()
+		s.accountCache = found
+		accts = found
+		s.mu.Unlock()
+	}
+
+	// Build one aggregate view across accounts: sum quantity per symbol,
+	// weighted-average cost. If the trader has the same stock in two
+	// tastytrade accounts, we roll them up (the advisor cares about the
+	// lot size, not which account holds it).
+	type agg struct {
+		qty   float64
+		cost  float64 // total cost across accounts
+	}
+	positions := map[string]*agg{}
+	var sourceID string
+	for _, accountNumber := range accts {
+		pos, err := s.tasty.ListPositions(ctx, accountNumber)
+		if err != nil {
+			s.logger.Warn("tastytrade positions failed", "account", accountNumber, "error", err)
+			continue
+		}
+		for _, p := range pos {
+			// Only equity positions (skip options, futures).
+			if p.InstrumentType != "Equity" {
+				continue
+			}
+			// Skip zero / short positions — Arsenal is for long stock.
+			if p.QuantityDirection != "Long" || p.Quantity <= 0 {
+				continue
+			}
+			sym := p.UnderlyingSymbol
+			if sym == "" {
+				sym = p.Symbol
+			}
+			a, ok := positions[sym]
+			if !ok {
+				a = &agg{}
+				positions[sym] = a
+			}
+			a.qty += p.Quantity
+			a.cost += p.Quantity * p.AverageOpenPrice
+		}
+		sourceID = accountNumber // tracked in source_id for audit; last wins if multi-account
+	}
+
+	syncedSymbols := make([]string, 0, len(positions))
+	for sym, a := range positions {
+		avgCost := 0.0
+		if a.qty > 0 {
+			avgCost = a.cost / a.qty
+		}
+		h := &domain.Holding{
+			Symbol:   sym,
+			Quantity: a.qty,
+			AvgCost:  avgCost,
+			Source:   "tastytrade",
+			SourceID: sourceID,
+			Notes:    "Auto-synced from tastytrade",
+		}
+		if err := s.store.UpsertHoldingBySource(h); err != nil {
+			s.logger.Warn("upsert holding failed", "symbol", sym, "error", err)
+			continue
+		}
+		syncedSymbols = append(syncedSymbols, sym)
+	}
+
+	// Prune synced rows that no longer have a position.
+	if removed, err := s.store.DeleteHoldingsBySourceExcept("tastytrade", syncedSymbols); err == nil && removed > 0 {
+		s.logger.Info("tastytrade holdings pruned", "removed", removed)
+	}
+
+	s.logger.Info("tastytrade positions synced to holdings", "symbols", len(syncedSymbols))
+	return nil
 }
 
 // syncBalanceToFirefly snapshots the tastytrade account net-liq into a virtual

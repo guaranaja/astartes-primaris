@@ -99,6 +99,12 @@ type DataStore interface {
 	CreateHolding(h *domain.Holding) error
 	UpdateHolding(h *domain.Holding) error
 	DeleteHolding(id string) error
+	// UpsertHoldingBySource inserts or updates a holding keyed on (source, symbol).
+	// Safe for sync loops that should not touch manual rows.
+	UpsertHoldingBySource(h *domain.Holding) error
+	// DeleteHoldingsBySourceExcept removes all rows for a source whose symbol
+	// isn't in keepSymbols — used to prune stale synced rows after a sync pass.
+	DeleteHoldingsBySourceExcept(source string, keepSymbols []string) (int, error)
 
 	// ─── Wheel Cycles ──────────────────────────────────
 	ListWheelCycles() []domain.WheelCycle
