@@ -39,6 +39,11 @@ type FinanceWorker struct {
 	stopFn   context.CancelFunc
 	running  bool
 	manualCh chan struct{}
+
+	// bankingSync is an optional hook that runs before each Firefly/Monarch
+	// sync. The banking service uses this to push new bank transactions into
+	// Firefly so they're already written by the time we ingest from Firefly.
+	bankingSync func(context.Context)
 }
 
 // NewFinanceWorker constructs a worker. firefly/monarch may be nil.
@@ -89,6 +94,15 @@ func (w *FinanceWorker) TriggerNow() {
 	}
 }
 
+// SetBankingSync registers an optional hook that runs before the
+// Firefly/Monarch ingest on each tick. Used by the banking service to
+// push new bank transactions into Firefly first.
+func (w *FinanceWorker) SetBankingSync(fn func(context.Context)) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.bankingSync = fn
+}
+
 func (w *FinanceWorker) run(ctx context.Context) {
 	w.syncAll(ctx)
 	t := time.NewTicker(w.interval)
@@ -106,6 +120,14 @@ func (w *FinanceWorker) run(ctx context.Context) {
 }
 
 func (w *FinanceWorker) syncAll(ctx context.Context) {
+	// Banking first — any new bank transactions get written to Firefly before
+	// we read Firefly into the cache, so the activity feed is fully fresh.
+	w.mu.Lock()
+	bankingSync := w.bankingSync
+	w.mu.Unlock()
+	if bankingSync != nil {
+		bankingSync(ctx)
+	}
 	if w.firefly != nil {
 		w.syncFirefly(ctx)
 	}

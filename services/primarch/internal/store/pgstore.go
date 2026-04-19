@@ -425,6 +425,28 @@ func (s *PGStore) ensureSchema() {
 			window_days     INTEGER NOT NULL DEFAULT 180,
 			updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 		)`,
+
+		// ── Banking (live bank connections via Plaid etc) ──
+		`CREATE TABLE IF NOT EXISTS bank_connections (
+			id                   TEXT PRIMARY KEY,
+			provider             TEXT NOT NULL,
+			provider_item_id     TEXT,
+			institution_id       TEXT,
+			institution_name     TEXT NOT NULL,
+			status               TEXT NOT NULL DEFAULT 'active',
+			last_error           TEXT,
+			sync_cursor          TEXT,
+			access_token_ct      TEXT,
+			accounts             JSONB DEFAULT '[]'::jsonb,
+			firefly_account_map  JSONB DEFAULT '{}'::jsonb,
+			last_synced_at       TIMESTAMPTZ,
+			last_ok_at           TIMESTAMPTZ,
+			last_txn_count       INTEGER NOT NULL DEFAULT 0,
+			created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+			updated_at           TIMESTAMPTZ NOT NULL DEFAULT now()
+		)`,
+		`CREATE INDEX IF NOT EXISTS bank_connections_status_idx ON bank_connections(status)`,
+		`CREATE INDEX IF NOT EXISTS bank_connections_provider_idx ON bank_connections(provider)`,
 	}
 	for _, stmt := range stmts {
 		if _, err := s.db.Exec(stmt); err != nil {
@@ -2455,6 +2477,124 @@ func nullTime(t *time.Time) interface{} {
 		return nil
 	}
 	return *t
+}
+
+// ─── Bank Connections (PG) ──────────────────────────────────
+
+func (s *PGStore) CreateBankConnection(c *domain.BankConnection) error {
+	if c.CreatedAt.IsZero() {
+		c.CreatedAt = time.Now()
+	}
+	c.UpdatedAt = time.Now()
+	accts, _ := json.Marshal(c.Accounts)
+	_, err := s.db.Exec(`INSERT INTO bank_connections
+		(id, provider, provider_item_id, institution_id, institution_name, status, last_error,
+		 sync_cursor, access_token_ct, accounts, firefly_account_map,
+		 last_synced_at, last_ok_at, last_txn_count, created_at, updated_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
+		c.ID, c.Provider, nullStr(c.ProviderItemID), nullStr(c.InstitutionID), c.InstitutionName,
+		c.Status, nullStr(c.LastError), nullStr(c.SyncCursor), nullStr(c.AccessTokenCT),
+		string(accts), nullJSON(c.FireflyAccountMap),
+		nullTime(c.LastSyncedAt), nullTime(c.LastOKAt), c.LastTxnCount,
+		c.CreatedAt, c.UpdatedAt)
+	if err != nil {
+		return fmt.Errorf("create bank connection: %w", err)
+	}
+	return nil
+}
+
+func (s *PGStore) GetBankConnection(id string) (*domain.BankConnection, error) {
+	return s.scanBankConnection(s.db.QueryRow(`SELECT id, provider, provider_item_id, institution_id,
+		institution_name, status, last_error, sync_cursor, access_token_ct,
+		accounts::text, firefly_account_map::text, last_synced_at, last_ok_at, last_txn_count,
+		created_at, updated_at FROM bank_connections WHERE id = $1`, id))
+}
+
+type pgRowScanner interface {
+	Scan(dest ...interface{}) error
+}
+
+func (s *PGStore) scanBankConnection(row pgRowScanner) (*domain.BankConnection, error) {
+	var c domain.BankConnection
+	var providerItemID, institutionID, lastError, cursor, tokenCT sql.NullString
+	var accountsJSON, fireflyMapJSON sql.NullString
+	var lastSynced, lastOK sql.NullTime
+	err := row.Scan(&c.ID, &c.Provider, &providerItemID, &institutionID, &c.InstitutionName,
+		&c.Status, &lastError, &cursor, &tokenCT,
+		&accountsJSON, &fireflyMapJSON, &lastSynced, &lastOK, &c.LastTxnCount,
+		&c.CreatedAt, &c.UpdatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("scan bank connection: %w", err)
+	}
+	c.ProviderItemID = providerItemID.String
+	c.InstitutionID = institutionID.String
+	c.LastError = lastError.String
+	c.SyncCursor = cursor.String
+	c.AccessTokenCT = tokenCT.String
+	if accountsJSON.Valid && accountsJSON.String != "" {
+		_ = json.Unmarshal([]byte(accountsJSON.String), &c.Accounts)
+	}
+	if fireflyMapJSON.Valid {
+		c.FireflyAccountMap = json.RawMessage(fireflyMapJSON.String)
+	}
+	if lastSynced.Valid {
+		t := lastSynced.Time
+		c.LastSyncedAt = &t
+	}
+	if lastOK.Valid {
+		t := lastOK.Time
+		c.LastOKAt = &t
+	}
+	return &c, nil
+}
+
+func (s *PGStore) ListBankConnections() []domain.BankConnection {
+	rows, err := s.db.Query(`SELECT id, provider, provider_item_id, institution_id,
+		institution_name, status, last_error, sync_cursor, access_token_ct,
+		accounts::text, firefly_account_map::text, last_synced_at, last_ok_at, last_txn_count,
+		created_at, updated_at FROM bank_connections ORDER BY created_at DESC`)
+	if err != nil {
+		s.logger.Error("list bank connections", "error", err)
+		return nil
+	}
+	defer rows.Close()
+	var out []domain.BankConnection
+	for rows.Next() {
+		c, err := s.scanBankConnection(rows)
+		if err != nil {
+			s.logger.Error("scan bank connection", "error", err)
+			continue
+		}
+		out = append(out, *c)
+	}
+	return out
+}
+
+func (s *PGStore) UpdateBankConnection(c *domain.BankConnection) error {
+	c.UpdatedAt = time.Now()
+	accts, _ := json.Marshal(c.Accounts)
+	_, err := s.db.Exec(`UPDATE bank_connections SET
+		provider=$2, provider_item_id=$3, institution_id=$4, institution_name=$5,
+		status=$6, last_error=$7, sync_cursor=$8, access_token_ct=$9,
+		accounts=$10, firefly_account_map=$11,
+		last_synced_at=$12, last_ok_at=$13, last_txn_count=$14, updated_at=$15
+		WHERE id=$1`,
+		c.ID, c.Provider, nullStr(c.ProviderItemID), nullStr(c.InstitutionID), c.InstitutionName,
+		c.Status, nullStr(c.LastError), nullStr(c.SyncCursor), nullStr(c.AccessTokenCT),
+		string(accts), nullJSON(c.FireflyAccountMap),
+		nullTime(c.LastSyncedAt), nullTime(c.LastOKAt), c.LastTxnCount, c.UpdatedAt)
+	if err != nil {
+		return fmt.Errorf("update bank connection: %w", err)
+	}
+	return nil
+}
+
+func (s *PGStore) DeleteBankConnection(id string) error {
+	_, err := s.db.Exec(`DELETE FROM bank_connections WHERE id = $1`, id)
+	if err != nil {
+		return fmt.Errorf("delete bank connection: %w", err)
+	}
+	return nil
 }
 
 func nullJSON(v json.RawMessage) interface{} {

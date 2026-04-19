@@ -144,4 +144,11 @@ type DataStore interface {
 	UpsertFinanceSyncState(s *domain.FinanceSyncState) error
 	GetFinanceSyncState(source string) (*domain.FinanceSyncState, error)
 	ListFinanceSyncState() []domain.FinanceSyncState
+
+	// ─── Banking Connections ──────────────────────────────
+	CreateBankConnection(c *domain.BankConnection) error
+	GetBankConnection(id string) (*domain.BankConnection, error)
+	ListBankConnections() []domain.BankConnection
+	UpdateBankConnection(c *domain.BankConnection) error
+	DeleteBankConnection(id string) error
 }

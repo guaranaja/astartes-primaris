@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/guaranaja/astartes-primaris/services/primarch/internal/advisor"
+	"github.com/guaranaja/astartes-primaris/services/primarch/internal/banking"
 	"github.com/guaranaja/astartes-primaris/services/primarch/internal/cfo"
 	"github.com/guaranaja/astartes-primaris/services/primarch/internal/domain"
 	"github.com/guaranaja/astartes-primaris/services/primarch/internal/ingest"
@@ -27,6 +28,7 @@ type Server struct {
 	cfo            *cfo.CouncilCFO
 	advisor        *advisor.Client
 	financeWorker  *ingest.FinanceWorker
+	banking        *banking.Service
 }
 
 // NewServer creates the API server with a new WebSocket hub.
@@ -142,6 +144,9 @@ func (s *Server) routes() {
 
 	// Activity feed (unified transactions)
 	s.registerActivityRoutes()
+
+	// Banking (Plaid etc.)
+	s.registerBankingRoutes()
 }
 
 // SetCFO configures the unified finance integration.
@@ -158,6 +163,12 @@ func (s *Server) SetAdvisor(a *advisor.Client) {
 // can trigger manual syncs.
 func (s *Server) SetFinanceWorker(w *ingest.FinanceWorker) {
 	s.financeWorker = w
+}
+
+// SetBanking wires the banking service (Plaid et al.). nil is allowed —
+// handlers return 503 when banking isn't configured.
+func (s *Server) SetBanking(b *banking.Service) {
+	s.banking = b
 }
 
 // ─── Health & Status ────────────────────────────────────────

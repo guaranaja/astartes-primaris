@@ -43,6 +43,7 @@ type Store struct {
 	ffTxns              map[string]*domain.FFTransaction
 	mnTxns              map[string]*domain.MNTransaction
 	syncStates          map[string]*domain.FinanceSyncState
+	bankConnections     map[string]*domain.BankConnection
 }
 
 // New creates a new empty store.
@@ -65,9 +66,10 @@ func New() *Store {
 		positions:   make(map[string]*domain.Position),
 		bars:           make(map[string]*domain.MarketBar),
 		advisorThreads: make(map[string]*domain.AdvisorThread),
-		ffTxns:         make(map[string]*domain.FFTransaction),
-		mnTxns:         make(map[string]*domain.MNTransaction),
-		syncStates:     make(map[string]*domain.FinanceSyncState),
+		ffTxns:          make(map[string]*domain.FFTransaction),
+		mnTxns:          make(map[string]*domain.MNTransaction),
+		syncStates:      make(map[string]*domain.FinanceSyncState),
+		bankConnections: make(map[string]*domain.BankConnection),
 	}
 }
 
@@ -894,4 +896,57 @@ func matchesMNFilter(t *domain.MNTransaction, f domain.ActivityFilter) bool {
 		return false
 	}
 	return true
+}
+
+// ─── Bank Connections (in-memory) ───────────────────────────
+
+func (s *Store) CreateBankConnection(c *domain.BankConnection) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if c.CreatedAt.IsZero() {
+		c.CreatedAt = time.Now()
+	}
+	c.UpdatedAt = time.Now()
+	cp := *c
+	s.bankConnections[c.ID] = &cp
+	return nil
+}
+
+func (s *Store) GetBankConnection(id string) (*domain.BankConnection, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if c, ok := s.bankConnections[id]; ok {
+		cp := *c
+		return &cp, nil
+	}
+	return nil, fmt.Errorf("bank connection %s not found", id)
+}
+
+func (s *Store) ListBankConnections() []domain.BankConnection {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]domain.BankConnection, 0, len(s.bankConnections))
+	for _, c := range s.bankConnections {
+		out = append(out, *c)
+	}
+	return out
+}
+
+func (s *Store) UpdateBankConnection(c *domain.BankConnection) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.bankConnections[c.ID]; !ok {
+		return fmt.Errorf("bank connection %s not found", c.ID)
+	}
+	c.UpdatedAt = time.Now()
+	cp := *c
+	s.bankConnections[c.ID] = &cp
+	return nil
+}
+
+func (s *Store) DeleteBankConnection(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.bankConnections, id)
+	return nil
 }

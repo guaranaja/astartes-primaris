@@ -31,6 +31,7 @@ import (
 
 	"github.com/guaranaja/astartes-primaris/services/primarch/internal/advisor"
 	"github.com/guaranaja/astartes-primaris/services/primarch/internal/api"
+	"github.com/guaranaja/astartes-primaris/services/primarch/internal/banking"
 	"github.com/guaranaja/astartes-primaris/services/primarch/internal/cfo"
 	"github.com/guaranaja/astartes-primaris/services/primarch/internal/ingest"
 	"github.com/guaranaja/astartes-primaris/services/primarch/internal/config"
@@ -117,6 +118,20 @@ func main() {
 			_ = cancelIngest // cancellation tied to process lifetime
 			financeWorker.Start(ingestCtx)
 			fmt.Println("  Finance ingest: running (15m interval)")
+
+			// Banking — Plaid for now. Requires PLAID_CLIENT_ID, PLAID_SECRET,
+			// PLAID_TOKEN_ENC_KEY (32-byte base64). Silently disables if any
+			// are missing.
+			plaidProvider := banking.NewPlaidProvider(logger)
+			crypter, cryptErr := banking.NewTokenCrypter()
+			if plaidProvider != nil && plaidProvider.Available() && cryptErr == nil {
+				bankingSvc := banking.NewService(plaidProvider, crypter, dataStore, fireflyClient, logger)
+				srv.SetBanking(bankingSvc)
+				financeWorker.SetBankingSync(bankingSvc.SyncAll)
+				fmt.Printf("  Banking:        connected (plaid %s)\n", plaidProvider.Env())
+			} else if cryptErr != nil && plaidProvider != nil && plaidProvider.Available() {
+				logger.Warn("banking disabled: token crypter failed", "error", cryptErr)
+			}
 		}
 	}
 

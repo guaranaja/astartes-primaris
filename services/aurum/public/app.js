@@ -853,12 +853,14 @@ const App = {
 
   async loadAdministratum() {
     try {
-      const [overview, accounts, status, activity, syncState] = await Promise.all([
+      const [overview, accounts, status, activity, syncState, bankingStatus, bankConns] = await Promise.all([
         this.api('/council/finance/overview').catch(() => null),
         this.api('/council/finance/accounts').catch(() => null),
         this.api('/council/finance/status').catch(() => null),
         this.api('/council/activity?limit=50').catch(() => null),
         this.api('/council/activity/sync-state').catch(() => null),
+        this.api('/council/banking/status').catch(() => ({ available: false })),
+        this.api('/council/banking/connections').catch(() => []),
       ]);
       this.state.financeOverview = overview;
       this.state.financeAccounts = accounts || [];
@@ -866,12 +868,151 @@ const App = {
       this.state.activity = (activity && activity.items) || [];
       this.state.activitySource = this.state.activitySource || 'all';
       this.state.syncState = syncState || [];
+      this.state.bankingStatus = bankingStatus;
+      this.state.bankConnections = bankConns || [];
       this.renderAdminOverview();
       this.renderAdminAccounts();
       this.renderActivityFeed();
       this.renderSyncStatus();
+      this.renderBankConnections();
     } catch (e) {
       // CFO integration may be unavailable
+    }
+  },
+
+  // ─── Banking ───────────────────────────────────────────
+
+  renderBankConnections() {
+    const listEl = document.getElementById('bankConnectionsList');
+    const statusEl = document.getElementById('bankingStatusLine');
+    const connectBtn = document.getElementById('connectBankBtn');
+    const status = this.state.bankingStatus || {};
+    const conns = this.state.bankConnections || [];
+
+    if (statusEl) {
+      if (!status.available) {
+        statusEl.textContent = 'Banking offline';
+        statusEl.style.color = 'var(--red)';
+      } else {
+        statusEl.textContent = `${status.provider || 'plaid'} · ${conns.length} connected`;
+        statusEl.style.color = 'var(--text-3)';
+      }
+    }
+    if (connectBtn) connectBtn.disabled = !status.available;
+
+    if (!listEl) return;
+    if (!status.available) {
+      listEl.innerHTML = '<div class="empty-state">Banking not configured — PLAID_CLIENT_ID / PLAID_SECRET / PLAID_TOKEN_ENC_KEY not set on primarch.</div>';
+      return;
+    }
+    if (!conns.length) {
+      listEl.innerHTML = '<div class="empty-state">No banks connected — click "+ Connect Bank" to link your first institution.</div>';
+      return;
+    }
+
+    listEl.innerHTML = conns.map(c => {
+      const lastOk = c.last_ok_at ? this.advisorTimeAgo(c.last_ok_at) : 'never';
+      const errBadge = c.status === 'error'
+        ? `<span style="color:var(--red);font-size:10px;text-transform:uppercase;letter-spacing:0.8px">⚠ ${esc(c.last_error || 'error')}</span>`
+        : '';
+      const accts = (c.accounts || []).map(a => {
+        const amt = a.current_balance || 0;
+        const amtColor = amt < 0 ? 'var(--red)' : 'var(--text-0)';
+        return `
+          <div class="bank-account-row">
+            <span class="bank-acct-name">${esc(a.name)}${a.mask ? ' ••' + esc(a.mask) : ''}</span>
+            <span class="bank-acct-type">${esc(a.subtype || a.type || '')}</span>
+            <span class="bank-acct-bal" style="color:${amtColor}">${amt < 0 ? '-$' : '$'}${fmt(Math.abs(amt))}</span>
+          </div>`;
+      }).join('');
+
+      return `
+        <div class="bank-connection-card">
+          <div class="bank-conn-header">
+            <div>
+              <div class="bank-conn-name">${esc(c.institution_name || 'Bank')}</div>
+              <div class="bank-conn-meta">
+                ${esc(c.provider)} · last sync ${esc(lastOk)}${c.last_txn_count ? ' · ' + c.last_txn_count + ' txns' : ''}
+              </div>
+            </div>
+            <div class="bank-conn-actions">
+              ${errBadge}
+              <button class="btn btn-sm" onclick="App.syncBank('${esc(c.id)}')">↻ Sync</button>
+              <button class="btn btn-sm" onclick="App.unlinkBank('${esc(c.id)}', '${esc(c.institution_name || '')}')">Unlink</button>
+            </div>
+          </div>
+          ${accts ? `<div class="bank-accounts">${accts}</div>` : '<div class="empty-state" style="padding:8px 0;font-size:11px">No accounts returned by provider</div>'}
+        </div>`;
+    }).join('');
+  },
+
+  // Dynamically load the Plaid Link SDK on first use so we don't ship the
+  // script tag on pages where the user doesn't open Administratum.
+  async loadPlaidSDK() {
+    if (window.Plaid) return;
+    await new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = 'https://cdn.plaid.com/link/v2/stable/link-initialize.js';
+      s.async = true;
+      s.onload = resolve;
+      s.onerror = () => reject(new Error('Failed to load Plaid Link SDK'));
+      document.head.appendChild(s);
+    });
+  },
+
+  async connectBank() {
+    if (!this.state.bankingStatus || !this.state.bankingStatus.available) {
+      this.flash('Banking not configured', 'error');
+      return;
+    }
+    try {
+      await this.loadPlaidSDK();
+      const resp = await this.api('/council/banking/link/token', { method: 'POST', body: {} });
+      const handler = window.Plaid.create({
+        token: resp.link_token,
+        onSuccess: async (publicToken, metadata) => {
+          try {
+            const conn = await this.api('/council/banking/link/exchange', {
+              method: 'POST',
+              body: { public_token: publicToken },
+            });
+            this.flash(`Connected ${conn.institution_name} — pulling transactions...`, 'info');
+            // Reload to show the new connection; initial sync runs server-side in background
+            setTimeout(() => this.loadAdministratum(), 1500);
+          } catch (e) {
+            this.flash('Exchange failed: ' + e.message, 'error');
+          }
+        },
+        onExit: (err, metadata) => {
+          if (err) {
+            this.flash('Plaid Link error: ' + (err.display_message || err.error_message || err.error_code), 'error');
+          }
+        },
+      });
+      handler.open();
+    } catch (e) {
+      this.flash(e.message, 'error');
+    }
+  },
+
+  async syncBank(id) {
+    try {
+      const r = await this.api(`/council/banking/connections/${encodeURIComponent(id)}/sync`, { method: 'POST' });
+      this.flash(`Synced ${r.added || 0} new transactions`, 'info');
+      setTimeout(() => this.loadAdministratum(), 1500);
+    } catch (e) {
+      this.flash('Sync failed: ' + e.message, 'error');
+    }
+  },
+
+  async unlinkBank(id, institutionName) {
+    if (!confirm(`Unlink ${institutionName || 'this bank'}? This revokes the Plaid access token. Transactions already in Firefly stay.`)) return;
+    try {
+      await this.api('/council/banking/connections/' + encodeURIComponent(id), { method: 'DELETE' });
+      this.flash('Bank unlinked', 'info');
+      this.loadAdministratum();
+    } catch (e) {
+      this.flash('Unlink failed: ' + e.message, 'error');
     }
   },
 

@@ -498,9 +498,24 @@
 
       <!-- ── Sub-view: Accounts ── -->
       <div class="sub-view" id="sub-accounts">
+        <!-- Connected Banks (Plaid) -->
         <div class="section">
           <div class="section-header">
-            <h2>Accounts</h2>
+            <h2>Connected Banks</h2>
+            <div style="display:flex;gap:8px;align-items:center">
+              <span id="bankingStatusLine" style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:0.8px"></span>
+              <button class="btn btn-sm btn-primary" id="connectBankBtn" onclick="App.connectBank()">+ Connect Bank</button>
+            </div>
+          </div>
+          <div id="bankConnectionsList">
+            <div class="empty-state">No banks connected</div>
+          </div>
+        </div>
+
+        <!-- All aggregated accounts (Firefly + Monarch + Trading) -->
+        <div class="section">
+          <div class="section-header">
+            <h2>All Accounts</h2>
             <span class="badge" id="adminAccountCount">0</span>
           </div>
           <div id="adminAccountList" class="account-list">
