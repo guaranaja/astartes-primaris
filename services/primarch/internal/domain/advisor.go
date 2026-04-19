@@ -39,4 +39,5 @@ const (
 	PlaybookAccountArch  = "account_arch"
 	PlaybookDebtOrder    = "debt_order"
 	PlaybookHardware     = "hardware"
+	PlaybookSecurity     = "security_posture"
 )

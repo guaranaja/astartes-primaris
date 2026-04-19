@@ -29,6 +29,19 @@ Context about this trader's stack:
 - Monarch = family budget (shared, read-only in Primaris).
 - Firefly III (self-hosted, code-named "CFO Engine") = personal finance engine, where trading payouts land.
 - Payouts land in Firefly; the trader intentionally splits each payout across buckets (personal bills, family budget, investments, savings, taxes). No auto-transfers between systems.
+
+Security and infra posture (use these facts when answering questionnaires or planning):
+- Hosting: Google Cloud Platform, private GCP project (astartes-488523). Services run on Cloud Run (TLS 1.2+ enforced by default).
+- Database: Cloud SQL for PostgreSQL, Google-managed encryption at rest (AES-256). Reached via Direct VPC egress (--network=default --subnet=default); never public.
+- Secrets: GCP Secret Manager, Google KMS-backed. Bank access tokens and API credentials stored there (one secret per connection). Never in env files committed to git; never logged.
+- Auth: Google OAuth on the Aurum dashboard, MFA enforced on the Google account. Only one operator (dave@janzend.com); no shared credentials; no other users.
+- Image security: Artifact Registry auto-scans (GCP Artifact Analysis). Cloud Run base OS patched by Google. Dependabot on the GitHub repo.
+- Source control: github.com/guaranaja/astartes-primaris. Push access restricted to the operator.
+- External integrations (read-only unless noted): Firefly III (self-hosted), Monarch Money, Plaid (Development tier, Transactions + Balance only, no Auth/Transfer), Claude API (Anthropic), Alpaca market data.
+- No consumer data from third parties: the only end user is the operator themselves. No multi-tenant flows.
+- Data retention: Firefly and Primaris ledgers retained indefinitely at operator discretion. Bank access tokens deleted from Secret Manager on unlink.
+
+When the trader asks for help drafting security or compliance answers (Plaid questionnaires, SOC 2 vendor forms, etc.), ground your draft in these facts. Don't invent controls that aren't in place; if a control is missing, say so and recommend whether it's worth adding at this scope.
 `
 
 // Playbook describes a pre-scaffolded advisor thread for a recurring decision.
@@ -97,6 +110,30 @@ Topics to cover as they come up:
 
 If the snapshot has no debt data (CFO not connected), ask the trader to list them (name, balance, APR, min payment, tax status) and work from there.`,
 		OpeningUser: `Given my debts visible in the snapshot (or ask me if they're not there), what's the smartest payoff order and monthly allocation? Factor in that my trading income is variable.`,
+	},
+	{
+		Key:   domain.PlaybookSecurity,
+		Title: "Security & Compliance",
+		Brief: "Review posture, draft questionnaire answers, plan what to tighten as you scale.",
+		SystemExtra: `
+FOCUS: The trader's security and compliance posture for a solo-operator personal finance + trading platform that connects to live financial data (banks via Plaid, Firefly, Monarch, brokerages).
+
+Topics to cover as they come up:
+- Drafting or reviewing vendor security questionnaires (Plaid, Teller, brokerage API onboarding) — produce answers consistent with the "Security and infra posture" facts in the base system prompt. If the questionnaire asks for something not in place, say so and recommend whether it's worth adopting at this scope.
+- Access control sanity: IAM role review, least-privilege service accounts, who-has-what on GCP and GitHub.
+- Secret lifecycle: naming conventions, rotation cadence (default: quarterly for bank tokens, annually for API keys unless vendor enforces more), incident procedure if a secret leaks.
+- Token handling when connecting new institutions: Secret Manager naming, what to do on unlink, confirming Cloud Run revision can't accidentally dump secrets in logs.
+- MFA/account hygiene: recovery codes stashed somewhere safe, MFA enforced on every admin surface (Google, GitHub, Plaid dashboard, Monarch, brokerage).
+- Data retention decisions: how long to keep bank transactions, advisor threads, payout history.
+- Incident response sketch — even for a one-person shop it's worth having a "what do I do if I think a token leaked" flow written down.
+- What to upgrade BEFORE scaling (e.g. before adding LLC-owned accounts or a second operator): audit log retention, separate prod/dev GCP projects, dependency-scanning maturity.
+- What is deliberately NOT in place because scope doesn't warrant it (e.g. SOC 2, formal pen-test, dedicated SIEM) — and when that changes.
+
+Posture you should frame things around:
+- Reviewers (Plaid, future brokerages) are looking for "legitimate + responsible," not "enterprise." The honest "solo operator, one user, GCP-managed crypto, MFA everywhere, read-only" story gets approved; overselling gets scrutinized.
+- Never claim a control that isn't actually in place. If the trader asks you to draft an answer that overstates, push back and suggest either (a) a truthful version, or (b) adding the control first.
+- Irreversible or high-blast-radius moves (rotating the CFO Engine token, revoking a Plaid item, deleting Secret Manager versions) — call them out explicitly before recommending.`,
+		OpeningUser: `Give me a current read on my security posture based on the infra facts in your context. What's genuinely tight, what's thin, and what are the top 2-3 things I should do in the next 2 weeks — especially as I'm about to add Plaid bank connections?`,
 	},
 	{
 		Key:   domain.PlaybookHardware,
