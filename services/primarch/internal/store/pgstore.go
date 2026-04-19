@@ -7,7 +7,7 @@ import (
 	"log/slog"
 	"time"
 
-	_ "github.com/lib/pq"
+	"github.com/lib/pq"
 
 	"github.com/guaranaja/astartes-primaris/services/primarch/internal/domain"
 )
@@ -375,6 +375,56 @@ func (s *PGStore) ensureSchema() {
 			created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 		)`,
 		`CREATE INDEX IF NOT EXISTS advisor_messages_thread_idx ON advisor_messages(thread_id, created_at)`,
+
+		// ── Finance ingest cache ──
+		`CREATE TABLE IF NOT EXISTS ff_transactions (
+			id              TEXT PRIMARY KEY,
+			journal_id      TEXT,
+			txn_type        TEXT NOT NULL,
+			date            DATE NOT NULL,
+			amount          DOUBLE PRECISION NOT NULL,
+			currency        TEXT NOT NULL DEFAULT 'USD',
+			description     TEXT,
+			category        TEXT,
+			budget_name     TEXT,
+			bill_id         TEXT,
+			source_account  TEXT,
+			dest_account    TEXT,
+			tags            TEXT[] DEFAULT '{}',
+			notes           TEXT,
+			external_url    TEXT,
+			raw             JSONB,
+			created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+			updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+		)`,
+		`CREATE INDEX IF NOT EXISTS ff_txn_date_idx      ON ff_transactions(date DESC)`,
+		`CREATE INDEX IF NOT EXISTS ff_txn_category_idx  ON ff_transactions(category)`,
+		`CREATE INDEX IF NOT EXISTS ff_txn_budget_idx    ON ff_transactions(budget_name)`,
+		`CREATE INDEX IF NOT EXISTS ff_txn_type_idx      ON ff_transactions(txn_type, date DESC)`,
+		`CREATE TABLE IF NOT EXISTS mn_transactions (
+			id           TEXT PRIMARY KEY,
+			date         DATE NOT NULL,
+			amount       DOUBLE PRECISION NOT NULL,
+			merchant     TEXT,
+			category     TEXT,
+			account      TEXT,
+			notes        TEXT,
+			is_recurring BOOLEAN NOT NULL DEFAULT FALSE,
+			raw          JSONB,
+			created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+			updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+		)`,
+		`CREATE INDEX IF NOT EXISTS mn_txn_date_idx     ON mn_transactions(date DESC)`,
+		`CREATE INDEX IF NOT EXISTS mn_txn_category_idx ON mn_transactions(category)`,
+		`CREATE TABLE IF NOT EXISTS finance_sync_state (
+			source          TEXT PRIMARY KEY,
+			last_synced_at  TIMESTAMPTZ,
+			last_ok_at      TIMESTAMPTZ,
+			last_error      TEXT,
+			last_count      INTEGER NOT NULL DEFAULT 0,
+			window_days     INTEGER NOT NULL DEFAULT 180,
+			updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+		)`,
 	}
 	for _, stmt := range stmts {
 		if _, err := s.db.Exec(stmt); err != nil {
@@ -2137,6 +2187,275 @@ func (s *PGStore) ListAdvisorMessages(threadID string) []domain.AdvisorMessage {
 }
 
 // ─── PG helpers (advisor) ───────────────────────────────────
+
+// ─── Finance Ingest Cache (PG) ──────────────────────────────
+
+func (s *PGStore) UpsertFFTransaction(t *domain.FFTransaction) error {
+	if t.CreatedAt.IsZero() {
+		t.CreatedAt = time.Now()
+	}
+	t.UpdatedAt = time.Now()
+	date, err := time.Parse("2006-01-02", t.Date)
+	if err != nil {
+		return fmt.Errorf("parse date: %w", err)
+	}
+	tags := t.Tags
+	if tags == nil {
+		tags = []string{}
+	}
+	_, err = s.db.Exec(`INSERT INTO ff_transactions
+		(id, journal_id, txn_type, date, amount, currency, description, category,
+		 budget_name, bill_id, source_account, dest_account, tags, notes, external_url,
+		 raw, created_at, updated_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+		ON CONFLICT (id) DO UPDATE SET
+			txn_type       = EXCLUDED.txn_type,
+			date           = EXCLUDED.date,
+			amount         = EXCLUDED.amount,
+			currency       = EXCLUDED.currency,
+			description    = EXCLUDED.description,
+			category       = EXCLUDED.category,
+			budget_name    = EXCLUDED.budget_name,
+			bill_id        = EXCLUDED.bill_id,
+			source_account = EXCLUDED.source_account,
+			dest_account   = EXCLUDED.dest_account,
+			tags           = EXCLUDED.tags,
+			notes          = EXCLUDED.notes,
+			external_url   = EXCLUDED.external_url,
+			raw            = EXCLUDED.raw,
+			updated_at     = EXCLUDED.updated_at`,
+		t.ID, nullStr(t.JournalID), t.Type, date, t.Amount, t.Currency,
+		nullStr(t.Description), nullStr(t.Category), nullStr(t.BudgetName), nullStr(t.BillID),
+		nullStr(t.SourceAccount), nullStr(t.DestAccount), pq.Array(tags), nullStr(t.Notes),
+		nullStr(t.ExternalURL), nullJSON(t.Raw), t.CreatedAt, t.UpdatedAt)
+	if err != nil {
+		return fmt.Errorf("upsert ff txn: %w", err)
+	}
+	return nil
+}
+
+func (s *PGStore) UpsertMNTransaction(t *domain.MNTransaction) error {
+	if t.CreatedAt.IsZero() {
+		t.CreatedAt = time.Now()
+	}
+	t.UpdatedAt = time.Now()
+	date, err := time.Parse("2006-01-02", t.Date)
+	if err != nil {
+		return fmt.Errorf("parse date: %w", err)
+	}
+	_, err = s.db.Exec(`INSERT INTO mn_transactions
+		(id, date, amount, merchant, category, account, notes, is_recurring,
+		 raw, created_at, updated_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+		ON CONFLICT (id) DO UPDATE SET
+			date         = EXCLUDED.date,
+			amount       = EXCLUDED.amount,
+			merchant     = EXCLUDED.merchant,
+			category     = EXCLUDED.category,
+			account      = EXCLUDED.account,
+			notes        = EXCLUDED.notes,
+			is_recurring = EXCLUDED.is_recurring,
+			raw          = EXCLUDED.raw,
+			updated_at   = EXCLUDED.updated_at`,
+		t.ID, date, t.Amount, nullStr(t.Merchant), nullStr(t.Category), nullStr(t.Account),
+		nullStr(t.Notes), t.IsRecurring, nullJSON(t.Raw), t.CreatedAt, t.UpdatedAt)
+	if err != nil {
+		return fmt.Errorf("upsert mn txn: %w", err)
+	}
+	return nil
+}
+
+func (s *PGStore) QueryFFTransactions(f domain.ActivityFilter) []domain.FFTransaction {
+	q := `SELECT id, COALESCE(journal_id,''), txn_type, date, amount, currency,
+		COALESCE(description,''), COALESCE(category,''), COALESCE(budget_name,''),
+		COALESCE(bill_id,''), COALESCE(source_account,''), COALESCE(dest_account,''),
+		tags, COALESCE(notes,''), COALESCE(external_url,''), created_at, updated_at
+		FROM ff_transactions WHERE 1=1`
+	var args []interface{}
+	idx := 0
+	if f.Since != nil {
+		idx++
+		q += fmt.Sprintf(" AND date >= $%d", idx)
+		args = append(args, *f.Since)
+	}
+	if f.Until != nil {
+		idx++
+		q += fmt.Sprintf(" AND date <= $%d", idx)
+		args = append(args, *f.Until)
+	}
+	if f.Category != "" {
+		idx++
+		q += fmt.Sprintf(" AND category = $%d", idx)
+		args = append(args, f.Category)
+	}
+	if f.BudgetName != "" {
+		idx++
+		q += fmt.Sprintf(" AND budget_name = $%d", idx)
+		args = append(args, f.BudgetName)
+	}
+	if f.Tag != "" {
+		idx++
+		q += fmt.Sprintf(" AND $%d = ANY(tags)", idx)
+		args = append(args, f.Tag)
+	}
+	q += " ORDER BY date DESC, id DESC"
+	if f.Limit > 0 {
+		idx++
+		q += fmt.Sprintf(" LIMIT $%d", idx)
+		args = append(args, f.Limit)
+	}
+	rows, err := s.db.Query(q, args...)
+	if err != nil {
+		s.logger.Error("query ff txns", "error", err)
+		return nil
+	}
+	defer rows.Close()
+	var out []domain.FFTransaction
+	for rows.Next() {
+		var t domain.FFTransaction
+		var date time.Time
+		var tags pq.StringArray
+		if err := rows.Scan(&t.ID, &t.JournalID, &t.Type, &date, &t.Amount, &t.Currency,
+			&t.Description, &t.Category, &t.BudgetName, &t.BillID, &t.SourceAccount, &t.DestAccount,
+			&tags, &t.Notes, &t.ExternalURL, &t.CreatedAt, &t.UpdatedAt); err != nil {
+			s.logger.Error("scan ff txn", "error", err)
+			continue
+		}
+		t.Date = date.Format("2006-01-02")
+		t.Tags = []string(tags)
+		out = append(out, t)
+	}
+	return out
+}
+
+func (s *PGStore) QueryMNTransactions(f domain.ActivityFilter) []domain.MNTransaction {
+	q := `SELECT id, date, amount, COALESCE(merchant,''), COALESCE(category,''),
+		COALESCE(account,''), COALESCE(notes,''), is_recurring, created_at, updated_at
+		FROM mn_transactions WHERE 1=1`
+	var args []interface{}
+	idx := 0
+	if f.Since != nil {
+		idx++
+		q += fmt.Sprintf(" AND date >= $%d", idx)
+		args = append(args, *f.Since)
+	}
+	if f.Until != nil {
+		idx++
+		q += fmt.Sprintf(" AND date <= $%d", idx)
+		args = append(args, *f.Until)
+	}
+	if f.Category != "" {
+		idx++
+		q += fmt.Sprintf(" AND category = $%d", idx)
+		args = append(args, f.Category)
+	}
+	q += " ORDER BY date DESC, id DESC"
+	if f.Limit > 0 {
+		idx++
+		q += fmt.Sprintf(" LIMIT $%d", idx)
+		args = append(args, f.Limit)
+	}
+	rows, err := s.db.Query(q, args...)
+	if err != nil {
+		s.logger.Error("query mn txns", "error", err)
+		return nil
+	}
+	defer rows.Close()
+	var out []domain.MNTransaction
+	for rows.Next() {
+		var t domain.MNTransaction
+		var date time.Time
+		if err := rows.Scan(&t.ID, &date, &t.Amount, &t.Merchant, &t.Category, &t.Account,
+			&t.Notes, &t.IsRecurring, &t.CreatedAt, &t.UpdatedAt); err != nil {
+			s.logger.Error("scan mn txn", "error", err)
+			continue
+		}
+		t.Date = date.Format("2006-01-02")
+		out = append(out, t)
+	}
+	return out
+}
+
+func (s *PGStore) UpsertFinanceSyncState(ss *domain.FinanceSyncState) error {
+	ss.UpdatedAt = time.Now()
+	_, err := s.db.Exec(`INSERT INTO finance_sync_state
+		(source, last_synced_at, last_ok_at, last_error, last_count, window_days, updated_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7)
+		ON CONFLICT (source) DO UPDATE SET
+			last_synced_at = EXCLUDED.last_synced_at,
+			last_ok_at     = EXCLUDED.last_ok_at,
+			last_error     = EXCLUDED.last_error,
+			last_count     = EXCLUDED.last_count,
+			window_days    = EXCLUDED.window_days,
+			updated_at     = EXCLUDED.updated_at`,
+		ss.Source, nullTime(ss.LastSyncedAt), nullTime(ss.LastOKAt), nullStr(ss.LastError),
+		ss.LastCount, ss.WindowDays, ss.UpdatedAt)
+	if err != nil {
+		return fmt.Errorf("upsert sync state: %w", err)
+	}
+	return nil
+}
+
+func (s *PGStore) GetFinanceSyncState(source string) (*domain.FinanceSyncState, error) {
+	var ss domain.FinanceSyncState
+	var lastSynced, lastOK sql.NullTime
+	var lastError sql.NullString
+	err := s.db.QueryRow(`SELECT source, last_synced_at, last_ok_at, last_error,
+		last_count, window_days, updated_at FROM finance_sync_state WHERE source = $1`, source).
+		Scan(&ss.Source, &lastSynced, &lastOK, &lastError, &ss.LastCount, &ss.WindowDays, &ss.UpdatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("get sync state: %w", err)
+	}
+	if lastSynced.Valid {
+		t := lastSynced.Time
+		ss.LastSyncedAt = &t
+	}
+	if lastOK.Valid {
+		t := lastOK.Time
+		ss.LastOKAt = &t
+	}
+	ss.LastError = lastError.String
+	return &ss, nil
+}
+
+func (s *PGStore) ListFinanceSyncState() []domain.FinanceSyncState {
+	rows, err := s.db.Query(`SELECT source, last_synced_at, last_ok_at, last_error,
+		last_count, window_days, updated_at FROM finance_sync_state ORDER BY source`)
+	if err != nil {
+		s.logger.Error("list sync states", "error", err)
+		return nil
+	}
+	defer rows.Close()
+	var out []domain.FinanceSyncState
+	for rows.Next() {
+		var ss domain.FinanceSyncState
+		var lastSynced, lastOK sql.NullTime
+		var lastError sql.NullString
+		if err := rows.Scan(&ss.Source, &lastSynced, &lastOK, &lastError,
+			&ss.LastCount, &ss.WindowDays, &ss.UpdatedAt); err != nil {
+			s.logger.Error("scan sync state", "error", err)
+			continue
+		}
+		if lastSynced.Valid {
+			t := lastSynced.Time
+			ss.LastSyncedAt = &t
+		}
+		if lastOK.Valid {
+			t := lastOK.Time
+			ss.LastOKAt = &t
+		}
+		ss.LastError = lastError.String
+		out = append(out, ss)
+	}
+	return out
+}
+
+func nullTime(t *time.Time) interface{} {
+	if t == nil {
+		return nil
+	}
+	return *t
+}
 
 func nullJSON(v json.RawMessage) interface{} {
 	if len(v) == 0 {

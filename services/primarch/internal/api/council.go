@@ -583,6 +583,22 @@ func (s *Server) handleRecordAllocation(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	s.logger.Info("allocation recorded", "category", a.Category, "amount", a.Amount, "note", a.Note)
+
+	// Write-through to Firefly as a tagged transfer to a virtual bucket account,
+	// so Firefly reports reflect the allocation. Skip for auto tax reserves
+	// (they're already handled by the payout deposit flow) and on CFO outage.
+	if s.cfo != nil && s.cfo.Available() && a.Category != "taxes" && a.PayoutID != "" {
+		dest := ""
+		if p := s.store.GetPayout(a.PayoutID); p != nil {
+			dest = p.Destination
+		}
+		if err := s.cfo.RecordAllocationTransfer(dest, a.Category, a.Amount, a.PayoutID, a.Note); err != nil {
+			s.logger.Warn("firefly allocation transfer failed — ledger entry kept", "error", err, "category", a.Category, "amount", a.Amount)
+		} else {
+			s.logger.Info("allocation written through to firefly", "category", a.Category, "amount", a.Amount)
+		}
+	}
+
 	writeJSON(w, http.StatusCreated, a)
 }
 

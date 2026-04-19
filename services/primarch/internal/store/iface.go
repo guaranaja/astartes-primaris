@@ -135,4 +135,13 @@ type DataStore interface {
 	UpdateAdvisorThread(t *domain.AdvisorThread) error
 	AppendAdvisorMessage(m *domain.AdvisorMessage) error
 	ListAdvisorMessages(threadID string) []domain.AdvisorMessage
+
+	// ─── Finance Ingest Cache ──────────────────────────────
+	UpsertFFTransaction(t *domain.FFTransaction) error
+	UpsertMNTransaction(t *domain.MNTransaction) error
+	QueryFFTransactions(f domain.ActivityFilter) []domain.FFTransaction
+	QueryMNTransactions(f domain.ActivityFilter) []domain.MNTransaction
+	UpsertFinanceSyncState(s *domain.FinanceSyncState) error
+	GetFinanceSyncState(source string) (*domain.FinanceSyncState, error)
+	ListFinanceSyncState() []domain.FinanceSyncState
 }

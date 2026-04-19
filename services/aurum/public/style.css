@@ -2377,3 +2377,116 @@ select.input option { background: var(--bg-1); }
   color: var(--text-3);
 }
 
+/* ─── Activity feed ─────────────────────────────────────── */
+.activity-filters {
+  display: flex;
+  gap: 2px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 2px;
+}
+.filter-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-2);
+  padding: 4px 10px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  cursor: pointer;
+  border-radius: 2px;
+  transition: background 0.15s, color 0.15s;
+}
+.filter-btn:hover {
+  color: var(--text-0);
+  background: rgba(201, 168, 76, 0.08);
+}
+.filter-btn.active {
+  background: var(--gold);
+  color: var(--bg-0);
+}
+.activity-feed {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-height: 600px;
+  overflow-y: auto;
+}
+.activity-day {
+  border-left: 2px solid var(--border);
+  padding-left: 12px;
+}
+.activity-day-header {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 6px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
+.activity-day-date {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-2);
+  font-weight: 600;
+}
+.activity-day-total {
+  font-size: 11px;
+  font-family: var(--font-mono);
+  font-weight: 600;
+}
+.activity-row {
+  display: grid;
+  grid-template-columns: 20px 1fr auto 100px;
+  gap: 10px;
+  align-items: center;
+  padding: 6px 8px;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+.activity-row:hover {
+  background: rgba(201, 168, 76, 0.05);
+}
+.activity-kind {
+  text-align: center;
+  color: var(--text-3);
+  font-size: 12px;
+}
+.activity-main {
+  min-width: 0;
+}
+.activity-desc {
+  font-size: 12px;
+  color: var(--text-0);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.activity-sub {
+  font-size: 10px;
+  color: var(--text-3);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 1px;
+}
+.activity-source {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  padding: 2px 6px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.03);
+}
+.activity-amt {
+  text-align: right;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+}
+

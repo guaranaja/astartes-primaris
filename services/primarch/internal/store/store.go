@@ -40,6 +40,9 @@ type Store struct {
 	propFees            []domain.PropFee
 	advisorThreads      map[string]*domain.AdvisorThread
 	advisorMessages     []domain.AdvisorMessage
+	ffTxns              map[string]*domain.FFTransaction
+	mnTxns              map[string]*domain.MNTransaction
+	syncStates          map[string]*domain.FinanceSyncState
 }
 
 // New creates a new empty store.
@@ -60,8 +63,11 @@ func New() *Store {
 		commands:    make(map[string]*domain.Command),
 		trades:      make(map[string]*domain.Trade),
 		positions:   make(map[string]*domain.Position),
-		bars:        make(map[string]*domain.MarketBar),
+		bars:           make(map[string]*domain.MarketBar),
 		advisorThreads: make(map[string]*domain.AdvisorThread),
+		ffTxns:         make(map[string]*domain.FFTransaction),
+		mnTxns:         make(map[string]*domain.MNTransaction),
+		syncStates:     make(map[string]*domain.FinanceSyncState),
 	}
 }
 
@@ -772,4 +778,120 @@ func (s *Store) ListAdvisorMessages(threadID string) []domain.AdvisorMessage {
 		}
 	}
 	return out
+}
+
+// ─── Finance Ingest Cache (in-memory) ───────────────────────
+
+func (s *Store) UpsertFFTransaction(t *domain.FFTransaction) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if t.CreatedAt.IsZero() {
+		t.CreatedAt = time.Now()
+	}
+	t.UpdatedAt = time.Now()
+	cp := *t
+	s.ffTxns[t.ID] = &cp
+	return nil
+}
+
+func (s *Store) UpsertMNTransaction(t *domain.MNTransaction) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if t.CreatedAt.IsZero() {
+		t.CreatedAt = time.Now()
+	}
+	t.UpdatedAt = time.Now()
+	cp := *t
+	s.mnTxns[t.ID] = &cp
+	return nil
+}
+
+func (s *Store) QueryFFTransactions(f domain.ActivityFilter) []domain.FFTransaction {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var out []domain.FFTransaction
+	for _, t := range s.ffTxns {
+		if !matchesFFFilter(t, f) {
+			continue
+		}
+		out = append(out, *t)
+		if f.Limit > 0 && len(out) >= f.Limit {
+			break
+		}
+	}
+	return out
+}
+
+func (s *Store) QueryMNTransactions(f domain.ActivityFilter) []domain.MNTransaction {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var out []domain.MNTransaction
+	for _, t := range s.mnTxns {
+		if !matchesMNFilter(t, f) {
+			continue
+		}
+		out = append(out, *t)
+		if f.Limit > 0 && len(out) >= f.Limit {
+			break
+		}
+	}
+	return out
+}
+
+func (s *Store) UpsertFinanceSyncState(ss *domain.FinanceSyncState) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ss.UpdatedAt = time.Now()
+	cp := *ss
+	s.syncStates[ss.Source] = &cp
+	return nil
+}
+
+func (s *Store) GetFinanceSyncState(source string) (*domain.FinanceSyncState, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if ss, ok := s.syncStates[source]; ok {
+		cp := *ss
+		return &cp, nil
+	}
+	return nil, fmt.Errorf("sync state %s not found", source)
+}
+
+func (s *Store) ListFinanceSyncState() []domain.FinanceSyncState {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]domain.FinanceSyncState, 0, len(s.syncStates))
+	for _, ss := range s.syncStates {
+		out = append(out, *ss)
+	}
+	return out
+}
+
+func matchesFFFilter(t *domain.FFTransaction, f domain.ActivityFilter) bool {
+	if f.Category != "" && t.Category != f.Category {
+		return false
+	}
+	if f.BudgetName != "" && t.BudgetName != f.BudgetName {
+		return false
+	}
+	if f.Tag != "" {
+		found := false
+		for _, tag := range t.Tags {
+			if tag == f.Tag {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+	return true
+}
+
+func matchesMNFilter(t *domain.MNTransaction, f domain.ActivityFilter) bool {
+	if f.Category != "" && t.Category != f.Category {
+		return false
+	}
+	return true
 }

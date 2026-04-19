@@ -32,6 +32,7 @@ import (
 	"github.com/guaranaja/astartes-primaris/services/primarch/internal/advisor"
 	"github.com/guaranaja/astartes-primaris/services/primarch/internal/api"
 	"github.com/guaranaja/astartes-primaris/services/primarch/internal/cfo"
+	"github.com/guaranaja/astartes-primaris/services/primarch/internal/ingest"
 	"github.com/guaranaja/astartes-primaris/services/primarch/internal/config"
 	"github.com/guaranaja/astartes-primaris/services/primarch/internal/domain"
 	"github.com/guaranaja/astartes-primaris/services/primarch/internal/runner"
@@ -107,6 +108,15 @@ func main() {
 		if fireflyClient != nil || monarchClient != nil {
 			councilCFO := cfo.NewCouncilCFO(fireflyClient, monarchClient, logger)
 			srv.SetCFO(councilCFO)
+
+			// Background ingest worker: pulls Firefly + Monarch transactions
+			// into Postgres on a 15-minute cadence for fast dashboard queries.
+			financeWorker := ingest.NewFinanceWorker(dataStore, fireflyClient, monarchClient, logger)
+			srv.SetFinanceWorker(financeWorker)
+			ingestCtx, cancelIngest := context.WithCancel(context.Background())
+			_ = cancelIngest // cancellation tied to process lifetime
+			financeWorker.Start(ingestCtx)
+			fmt.Println("  Finance ingest: running (15m interval)")
 		}
 	}
 

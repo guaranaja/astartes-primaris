@@ -436,7 +436,11 @@
         <div class="section">
           <div class="section-header">
             <h2>This Month</h2>
-            <span class="badge" id="adminMonthLabel">—</span>
+            <div style="display:flex;gap:8px;align-items:center">
+              <span class="badge" id="adminMonthLabel">—</span>
+              <span id="adminSyncStatus" style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:0.8px"></span>
+              <button class="btn btn-sm" onclick="App.triggerFinanceSync()">↻ Sync</button>
+            </div>
           </div>
           <div class="stats-grid">
             <div class="stat">
@@ -473,6 +477,22 @@
             </div>
           </div>
           <div id="adminCoverageBar" style="margin-top:12px"></div>
+        </div>
+
+        <!-- Activity Feed — unified stream across Firefly + Monarch + Trading -->
+        <div class="section">
+          <div class="section-header">
+            <h2>Recent Activity</h2>
+            <div class="activity-filters">
+              <button class="filter-btn active" data-activity-source="all" onclick="App.setActivityFilter('all')">All</button>
+              <button class="filter-btn" data-activity-source="trading" onclick="App.setActivityFilter('trading')">Trading</button>
+              <button class="filter-btn" data-activity-source="firefly" onclick="App.setActivityFilter('firefly')">Personal</button>
+              <button class="filter-btn" data-activity-source="monarch" onclick="App.setActivityFilter('monarch')">Family</button>
+            </div>
+          </div>
+          <div id="activityFeed" class="activity-feed">
+            <div class="empty-state">Loading activity...</div>
+          </div>
         </div>
       </div>
 

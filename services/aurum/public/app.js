@@ -853,19 +853,157 @@ const App = {
 
   async loadAdministratum() {
     try {
-      const [overview, accounts, status] = await Promise.all([
+      const [overview, accounts, status, activity, syncState] = await Promise.all([
         this.api('/council/finance/overview').catch(() => null),
         this.api('/council/finance/accounts').catch(() => null),
         this.api('/council/finance/status').catch(() => null),
+        this.api('/council/activity?limit=50').catch(() => null),
+        this.api('/council/activity/sync-state').catch(() => null),
       ]);
       this.state.financeOverview = overview;
       this.state.financeAccounts = accounts || [];
       this.state.financeStatus = status;
+      this.state.activity = (activity && activity.items) || [];
+      this.state.activitySource = this.state.activitySource || 'all';
+      this.state.syncState = syncState || [];
       this.renderAdminOverview();
       this.renderAdminAccounts();
+      this.renderActivityFeed();
+      this.renderSyncStatus();
     } catch (e) {
       // CFO integration may be unavailable
     }
+  },
+
+  async triggerFinanceSync() {
+    try {
+      await this.api('/council/activity/sync', { method: 'POST' });
+      this.flash('Sync triggered — refreshing in 4s', 'info');
+      setTimeout(() => this.loadAdministratum(), 4000);
+    } catch (e) {
+      this.flash(e.message, 'error');
+    }
+  },
+
+  renderSyncStatus() {
+    const el = document.getElementById('adminSyncStatus');
+    if (!el) return;
+    const states = this.state.syncState || [];
+    if (!states.length) { el.textContent = ''; return; }
+    const lines = states.map(s => {
+      const when = s.last_ok_at ? this.advisorTimeAgo(s.last_ok_at) : 'never';
+      const label = s.source === 'firefly' ? 'Firefly' : s.source === 'monarch' ? 'Monarch' : s.source;
+      const err = s.last_error ? ' ⚠' : '';
+      return `${label} ${when}${err}`;
+    });
+    el.textContent = lines.join(' · ');
+    el.title = states.map(s => `${s.source}: ${s.last_count} txns, last sync ${s.last_synced_at}${s.last_error ? ' — error: ' + s.last_error : ''}`).join('\n');
+  },
+
+  setActivityFilter(source) {
+    this.state.activitySource = source;
+    document.querySelectorAll('#sub-overview .filter-btn[data-activity-source]').forEach(b => {
+      b.classList.toggle('active', b.dataset.activitySource === source);
+    });
+    this.renderActivityFeed();
+  },
+
+  renderActivityFeed() {
+    const el = document.getElementById('activityFeed');
+    if (!el) return;
+    const all = this.state.activity || [];
+    const source = this.state.activitySource || 'all';
+    const items = source === 'all' ? all : all.filter(i => i.source === source);
+
+    if (!items.length) {
+      el.innerHTML = '<div class="empty-state">No activity in the selected window — try Sync or widen the timeframe.</div>';
+      return;
+    }
+
+    // Group by date for a calendar-like read
+    const groups = {};
+    for (const i of items) {
+      (groups[i.date] = groups[i.date] || []).push(i);
+    }
+    const dates = Object.keys(groups).sort((a, b) => b.localeCompare(a));
+
+    const sourceLabel = {
+      firefly: { label: 'PERSONAL', color: 'var(--blue)' },
+      monarch: { label: 'FAMILY',   color: 'var(--accent)' },
+      trading: { label: 'TRADING',  color: 'var(--gold)' },
+    };
+    const kindIcon = {
+      deposit: '↑', withdrawal: '↓', transfer: '↔', payout: '$', prop_fee: '⊘',
+    };
+
+    el.innerHTML = dates.map(date => {
+      const dayTotal = groups[date].reduce((s, i) => s + i.amount, 0);
+      const dayColor = dayTotal >= 0 ? 'var(--green)' : 'var(--red)';
+      const rows = groups[date].map(i => {
+        const meta = sourceLabel[i.source] || { label: i.source.toUpperCase(), color: 'var(--text-3)' };
+        const amtColor = i.amount >= 0 ? 'var(--green)' : 'var(--red)';
+        const amtSign = i.amount >= 0 ? '+' : '-';
+        const desc = i.description || i.category || '(no description)';
+        const sub = [i.category, i.account].filter(Boolean).join(' · ');
+        return `
+          <div class="activity-row" onclick="App.openActivityDetail('${esc(i.id)}')">
+            <span class="activity-kind" title="${esc(i.kind)}">${kindIcon[i.kind] || '•'}</span>
+            <div class="activity-main">
+              <div class="activity-desc">${esc(desc)}</div>
+              <div class="activity-sub">${esc(sub)}</div>
+            </div>
+            <span class="activity-source" style="color:${meta.color}">${meta.label}</span>
+            <span class="activity-amt" style="color:${amtColor}">${amtSign}$${fmt(Math.abs(i.amount))}</span>
+          </div>`;
+      }).join('');
+      return `
+        <div class="activity-day">
+          <div class="activity-day-header">
+            <span class="activity-day-date">${this.formatActivityDate(date)}</span>
+            <span class="activity-day-total" style="color:${dayColor}">${dayTotal >= 0 ? '+' : '-'}$${fmt(Math.abs(dayTotal))}</span>
+          </div>
+          ${rows}
+        </div>`;
+    }).join('');
+  },
+
+  formatActivityDate(iso) {
+    const d = new Date(iso + 'T12:00:00');
+    const today = new Date();
+    today.setHours(0,0,0,0);
+    const dayStart = new Date(d);
+    dayStart.setHours(0,0,0,0);
+    const diffDays = Math.round((today - dayStart) / (24*3600*1000));
+    if (diffDays === 0) return 'Today';
+    if (diffDays === 1) return 'Yesterday';
+    if (diffDays < 7) return d.toLocaleDateString('en-US', { weekday: 'long' });
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: d.getFullYear() !== today.getFullYear() ? 'numeric' : undefined });
+  },
+
+  openActivityDetail(id) {
+    const item = (this.state.activity || []).find(i => i.id === id);
+    if (!item) return;
+    // Placeholder detail modal — drill-down lands next.
+    const tags = (item.tags || []).map(t => `<span class="alloc-tag">${esc(t)}</span>`).join(' ');
+    this.openModal(`
+      <h3 style="margin-bottom:12px">Transaction</h3>
+      <div style="font-size:13px;line-height:1.8">
+        <div><strong>${esc(item.description || '—')}</strong></div>
+        <div style="color:var(--text-3);font-size:11px;text-transform:uppercase;letter-spacing:0.8px;margin-top:2px">
+          ${esc(item.source)} · ${esc(item.kind)} · ${esc(item.date)}
+        </div>
+        <div style="margin-top:12px;display:grid;grid-template-columns:120px 1fr;gap:6px;font-size:12px">
+          <span style="color:var(--text-3)">Amount</span><span style="font-family:var(--font-mono);color:${item.amount >= 0 ? 'var(--green)' : 'var(--red)'}">${item.amount >= 0 ? '+' : '-'}$${fmt(Math.abs(item.amount))} ${esc(item.currency || '')}</span>
+          ${item.category ? `<span style="color:var(--text-3)">Category</span><span>${esc(item.category)}</span>` : ''}
+          ${item.account ? `<span style="color:var(--text-3)">Account</span><span>${esc(item.account)}</span>` : ''}
+          ${item.ref_id ? `<span style="color:var(--text-3)">Ref ID</span><span style="font-family:var(--font-mono);font-size:10px">${esc(item.ref_id)}</span>` : ''}
+          ${tags ? `<span style="color:var(--text-3)">Tags</span><span>${tags}</span>` : ''}
+        </div>
+      </div>
+      <div style="margin-top:16px;display:flex;justify-content:flex-end">
+        <button class="btn" onclick="App.closeModal()">Close</button>
+      </div>
+    `);
   },
 
   renderAdminOverview() {

@@ -3,6 +3,7 @@ package cfo
 import (
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 )
 
@@ -550,6 +551,58 @@ func (c *CouncilCFO) RecordPayoutTransaction(accountName string, amount float64,
 		Tags:            []string{"trading-payout", "astartes"},
 	}
 	return c.firefly.CreateTransaction(txn)
+}
+
+// RecordAllocationTransfer posts a Firefly transfer from the payout destination
+// (typically "Personal Checking") into a virtual asset account named for the
+// allocation category. Firefly auto-creates the destination asset account on
+// first use. The transfer is tagged `payout-allocation` and `payout:<id>` so it
+// can be filtered back out in Firefly reports.
+//
+// Net-worth neutral: both source and dest are asset accounts. Think of it as
+// "earmarking" — the bucket balance represents allocated-but-unspent funds.
+// When real family/personal/etc spending actually happens against those
+// earmarks, the user transfers back from bucket → checking → then records the
+// real expense.
+func (c *CouncilCFO) RecordAllocationTransfer(payoutDestination, category string, amount float64, payoutID, note string) error {
+	if c.firefly == nil {
+		return fmt.Errorf("cfo engine not configured")
+	}
+	if payoutDestination == "" {
+		payoutDestination = "Personal Checking"
+	}
+	bucketName := "Bucket: " + humanizeCategory(category)
+	desc := fmt.Sprintf("Earmark %s → %s", payoutDestination, bucketName)
+	if note != "" {
+		desc += " (" + note + ")"
+	}
+	tags := []string{"payout-allocation", "category:" + category}
+	if payoutID != "" {
+		tags = append(tags, "payout:"+payoutID)
+	}
+	txn := FFTransactionStore{
+		Type:            "transfer",
+		Description:     desc,
+		Date:            time.Now().Format("2006-01-02"),
+		Amount:          fmt.Sprintf("%.2f", amount),
+		SourceName:      payoutDestination,
+		DestinationName: bucketName,
+		CategoryName:    "Payout Allocations",
+		Tags:            tags,
+	}
+	return c.firefly.CreateTransaction(txn)
+}
+
+// humanizeCategory turns snake_case bucket keys into "Title Case" for Firefly.
+func humanizeCategory(k string) string {
+	parts := strings.Split(k, "_")
+	for i, p := range parts {
+		if len(p) == 0 {
+			continue
+		}
+		parts[i] = strings.ToUpper(p[:1]) + p[1:]
+	}
+	return strings.Join(parts, " ")
 }
 
 // RecordFeeTransaction creates a withdrawal transaction in Firefly III

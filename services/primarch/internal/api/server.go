@@ -12,6 +12,7 @@ import (
 	"github.com/guaranaja/astartes-primaris/services/primarch/internal/advisor"
 	"github.com/guaranaja/astartes-primaris/services/primarch/internal/cfo"
 	"github.com/guaranaja/astartes-primaris/services/primarch/internal/domain"
+	"github.com/guaranaja/astartes-primaris/services/primarch/internal/ingest"
 	"github.com/guaranaja/astartes-primaris/services/primarch/internal/scheduler"
 	"github.com/guaranaja/astartes-primaris/services/primarch/internal/store"
 )
@@ -22,9 +23,10 @@ type Server struct {
 	scheduler *scheduler.Scheduler
 	logger    *slog.Logger
 	hub       *WSHub
-	mux       *http.ServeMux
-	cfo       *cfo.CouncilCFO
-	advisor   *advisor.Client
+	mux            *http.ServeMux
+	cfo            *cfo.CouncilCFO
+	advisor        *advisor.Client
+	financeWorker  *ingest.FinanceWorker
 }
 
 // NewServer creates the API server with a new WebSocket hub.
@@ -137,6 +139,9 @@ func (s *Server) routes() {
 
 	// Advisor (Claude-powered strategic conversations)
 	s.registerAdvisorRoutes()
+
+	// Activity feed (unified transactions)
+	s.registerActivityRoutes()
 }
 
 // SetCFO configures the unified finance integration.
@@ -147,6 +152,12 @@ func (s *Server) SetCFO(c *cfo.CouncilCFO) {
 // SetAdvisor configures the Claude advisor client (nil-safe).
 func (s *Server) SetAdvisor(a *advisor.Client) {
 	s.advisor = a
+}
+
+// SetFinanceWorker wires the background finance ingest worker so handlers
+// can trigger manual syncs.
+func (s *Server) SetFinanceWorker(w *ingest.FinanceWorker) {
+	s.financeWorker = w
 }
 
 // ─── Health & Status ────────────────────────────────────────
