@@ -1364,6 +1364,16 @@ select.input option { background: var(--bg-1); }
   background: rgba(45, 212, 160, 0.1);
   color: var(--green);
 }
+.expense-due {
+  font-size: 9px;
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  font-weight: 600;
+  padding: 1px 5px;
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.04);
+}
 .expense-actions {
   display: flex;
   gap: 4px;

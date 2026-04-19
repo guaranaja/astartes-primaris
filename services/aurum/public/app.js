@@ -1875,8 +1875,15 @@ const App = {
     // Merge unified bills from billing API + manual expenses
     const bills = (b && b.bills) || [];
     const manual = this.state.expenses || [];
-    const lifeBills = bills.filter(e => e.kind === 'life');
-    const systemBills = bills.filter(e => e.kind === 'system');
+    // Sort by next_date ascending (most imminent first); bills without a date go last
+    const byNextDate = (x, y) => {
+      if (x.next_date && y.next_date) return x.next_date.localeCompare(y.next_date);
+      if (x.next_date) return -1;
+      if (y.next_date) return 1;
+      return 0;
+    };
+    const lifeBills = bills.filter(e => e.kind === 'life').sort(byNextDate);
+    const systemBills = bills.filter(e => e.kind === 'system').sort(byNextDate);
     // Manual expenses that aren't already in the unified list
     const manualOnly = manual.filter(e => !e.source);
 
@@ -1892,12 +1899,27 @@ const App = {
         : e.source === 'personal'
           ? '<span class="expense-autopay" style="background:var(--blue)">CFO</span>'
           : '';
+      const freq = e.repeat_freq || e.frequency || 'monthly';
+      // Next due pill: "Due X days", "Overdue", "Due today" — only if next_date exists
+      let dueTag = '';
+      if (e.next_date) {
+        const today = new Date(); today.setHours(0,0,0,0);
+        const due = new Date(e.next_date + 'T12:00:00');
+        const days = Math.round((due - today) / 86400000);
+        let label, color;
+        if (days < 0) { label = `Overdue ${-days}d`; color = 'var(--red)'; }
+        else if (days === 0) { label = 'Due today'; color = 'var(--red)'; }
+        else if (days <= 7) { label = `Due in ${days}d`; color = 'var(--gold)'; }
+        else { label = `Due in ${days}d`; color = 'var(--text-3)'; }
+        dueTag = `<span class="expense-due" style="color:${color}">${label}</span>`;
+      }
       return `
         <div class="expense-item">
           <span class="expense-name">${esc(e.name)}</span>
           <span class="expense-category">${esc(e.category || '')}</span>
           <span class="expense-amount">$${fmt(e.amount)}</span>
-          <span class="expense-freq">${e.repeat_freq || e.frequency || 'monthly'}</span>
+          <span class="expense-freq">${esc(freq)}</span>
+          ${dueTag}
           ${sourceTag}
           ${isManual ? `<div class="expense-actions">
             <button class="btn btn-sm" onclick="event.stopPropagation(); App.payExpense('${e.id}', '${esc(e.name)}', ${e.amount})" title="Record payment">Pay</button>

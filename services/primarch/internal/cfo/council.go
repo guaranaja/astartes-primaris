@@ -48,14 +48,17 @@ type UnifiedBudget struct {
 
 // UnifiedBill is a normalized recurring bill.
 type UnifiedBill struct {
-	ID       string  `json:"id"`
-	Name     string  `json:"name"`
-	Amount   float64 `json:"amount"`
-	Source   string  `json:"source"`   // personal, family, trading
-	Kind     string  `json:"kind"`     // "life" (real-world bills) or "system" (trading infra costs)
-	Category string  `json:"category"` // monarch category or manual category
-	Repeat   string  `json:"repeat_freq"`
-	Currency string  `json:"currency"`
+	ID        string  `json:"id"`
+	Name      string  `json:"name"`
+	Amount    float64 `json:"amount"`     // expected monthly cost (normalized)
+	Source    string  `json:"source"`     // personal, family, trading
+	Kind      string  `json:"kind"`       // "life" (real-world bills) or "system" (trading infra costs)
+	Category  string  `json:"category"`   // monarch category or manual category
+	Repeat    string  `json:"repeat_freq"`
+	Currency  string  `json:"currency"`
+	NextDate  string  `json:"next_date,omitempty"`   // YYYY-MM-DD, next expected charge
+	IsActive  bool    `json:"is_active,omitempty"`
+	LogoURL   string  `json:"logo_url,omitempty"`
 }
 
 // UnifiedGoal is a normalized savings goal.
@@ -459,6 +462,8 @@ func monthlyAmount(b UnifiedBill) float64 {
 	switch b.Repeat {
 	case "weekly":
 		return b.Amount * 4.33
+	case "biweekly":
+		return b.Amount * 2.17
 	case "half-year":
 		return b.Amount / 6
 	case "yearly":
@@ -467,6 +472,29 @@ func monthlyAmount(b UnifiedBill) float64 {
 		return b.Amount / 3
 	default:
 		return b.Amount
+	}
+}
+
+// normalizeFreq maps Monarch's frequency enum onto the strings the rest of
+// the dashboard expects (matches Firefly's repeat_freq values).
+func normalizeFreq(f string) string {
+	switch strings.ToUpper(f) {
+	case "WEEKLY":
+		return "weekly"
+	case "BIWEEKLY", "BI_WEEKLY":
+		return "biweekly"
+	case "MONTHLY":
+		return "monthly"
+	case "QUARTERLY":
+		return "quarterly"
+	case "SEMI_ANNUAL", "SEMIANNUAL", "HALF_YEAR":
+		return "half-year"
+	case "YEARLY", "ANNUAL":
+		return "yearly"
+	case "":
+		return "monthly"
+	default:
+		return strings.ToLower(f)
 	}
 }
 
@@ -487,27 +515,72 @@ func (c *CouncilCFO) GetBillingSummary(tradingIncome float64) (*BillingSummary, 
 		}
 	}
 
-	// Monarch recurring transactions (real life bills)
+	// Monarch bills — prefer recurring streams (the authoritative list Monarch's
+	// own Bills UI uses). Fall back to transaction-instances if streams fail
+	// or the schema changes on us.
 	if c.monarch != nil {
-		recurring, err := c.monarch.GetRecurringTransactions()
-		if err != nil {
-			c.logger.Warn("monarch recurring failed", "error", err)
-		} else {
-			for _, t := range recurring {
-				amt := t.Amount
+		streams, sErr := c.monarch.GetRecurringStreams()
+		if sErr == nil && len(streams) > 0 {
+			for _, s := range streams {
+				if !s.IsActive {
+					continue
+				}
+				// Ignore income streams (positive amounts) for billing.
+				if s.Amount > 0 || s.NextAmount > 0 {
+					continue
+				}
+				amt := s.Amount
+				if s.NextAmount != 0 {
+					amt = s.NextAmount
+				}
 				if amt < 0 {
-					amt = -amt // expenses come as negative
+					amt = -amt
+				}
+				name := s.Merchant
+				if name == "" {
+					name = s.Category
 				}
 				allBills = append(allBills, UnifiedBill{
-					ID:       "mn-" + t.ID,
-					Name:     t.Merchant,
+					ID:       "mn-stream-" + s.ID,
+					Name:     name,
 					Amount:   amt,
 					Source:   SourceFamily,
 					Kind:     "life",
-					Category: t.Category,
-					Repeat:   "monthly",
+					Category: s.Category,
+					Repeat:   normalizeFreq(s.Frequency),
 					Currency: c.defaultCurrency,
+					NextDate: s.NextDate,
+					IsActive: s.IsActive,
+					LogoURL:  s.LogoURL,
 				})
+			}
+		} else {
+			if sErr != nil {
+				c.logger.Warn("monarch streams failed, falling back to transactions", "error", sErr)
+			}
+			recurring, err := c.monarch.GetRecurringTransactions()
+			if err != nil {
+				c.logger.Warn("monarch recurring failed", "error", err)
+			} else {
+				for _, t := range recurring {
+					amt := t.Amount
+					if amt > 0 {
+						continue // income, skip
+					}
+					if amt < 0 {
+						amt = -amt
+					}
+					allBills = append(allBills, UnifiedBill{
+						ID:       "mn-" + t.ID,
+						Name:     t.Merchant,
+						Amount:   amt,
+						Source:   SourceFamily,
+						Kind:     "life",
+						Category: t.Category,
+						Repeat:   "monthly",
+						Currency: c.defaultCurrency,
+					})
+				}
 			}
 		}
 	}

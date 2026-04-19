@@ -294,8 +294,101 @@ func (c *MonarchClient) GetCashFlow(start, end time.Time) (*MCashFlow, error) {
 	return cf, nil
 }
 
-// GetRecurringTransactions returns recurring bills/income.
-// Uses allTransactions with isRecurring filter (Monarch v2 API).
+// MRecurringStream is a Monarch "recurring transaction stream" — the
+// authoritative bill/income definition with expected amount and next forecast.
+// This is what Monarch's Recurring/Bills UI displays.
+type MRecurringStream struct {
+	ID            string  `json:"id"`
+	Merchant      string  `json:"merchant"`
+	Category      string  `json:"category"`
+	Frequency     string  `json:"frequency"` // MONTHLY, YEARLY, WEEKLY, BIWEEKLY, etc.
+	Amount        float64 `json:"amount"`    // signed — negative = expense
+	NextDate      string  `json:"next_date,omitempty"`
+	NextAmount    float64 `json:"next_amount,omitempty"`
+	IsActive      bool    `json:"is_active"`
+	Account       string  `json:"account,omitempty"`
+	LogoURL       string  `json:"logo_url,omitempty"`
+}
+
+// GetRecurringStreams returns the authoritative recurring streams Monarch
+// displays on its Bills/Recurring page. Preferred over GetRecurringTransactions
+// because it surfaces stream *definitions* (including ones that haven't charged
+// recently) with their expected amount and next forecasted date.
+func (c *MonarchClient) GetRecurringStreams() ([]MRecurringStream, error) {
+	gql := `query Web_GetRecurringTransactionsList {
+		recurringTransactionStreams {
+			id
+			frequency
+			amount
+			isActive
+			baseDate
+			nextForecastedTransaction {
+				date
+				amount
+			}
+			merchant { name logoUrl }
+			category { name }
+			account { displayName }
+		}
+	}`
+	var resp struct {
+		Data struct {
+			RecurringTransactionStreams []struct {
+				ID        string  `json:"id"`
+				Frequency string  `json:"frequency"`
+				Amount    float64 `json:"amount"`
+				IsActive  bool    `json:"isActive"`
+				BaseDate  string  `json:"baseDate"`
+				NextForecastedTransaction *struct {
+					Date   string  `json:"date"`
+					Amount float64 `json:"amount"`
+				} `json:"nextForecastedTransaction"`
+				Merchant *struct {
+					Name    string `json:"name"`
+					LogoUrl string `json:"logoUrl"`
+				} `json:"merchant"`
+				Category *struct {
+					Name string `json:"name"`
+				} `json:"category"`
+				Account *struct {
+					DisplayName string `json:"displayName"`
+				} `json:"account"`
+			} `json:"recurringTransactionStreams"`
+		} `json:"data"`
+	}
+	if err := c.query(gql, nil, &resp); err != nil {
+		return nil, err
+	}
+	out := make([]MRecurringStream, 0, len(resp.Data.RecurringTransactionStreams))
+	for _, s := range resp.Data.RecurringTransactionStreams {
+		stream := MRecurringStream{
+			ID:        s.ID,
+			Frequency: s.Frequency,
+			Amount:    s.Amount,
+			IsActive:  s.IsActive,
+		}
+		if s.Merchant != nil {
+			stream.Merchant = s.Merchant.Name
+			stream.LogoURL = s.Merchant.LogoUrl
+		}
+		if s.Category != nil {
+			stream.Category = s.Category.Name
+		}
+		if s.Account != nil {
+			stream.Account = s.Account.DisplayName
+		}
+		if s.NextForecastedTransaction != nil {
+			stream.NextDate = s.NextForecastedTransaction.Date
+			stream.NextAmount = s.NextForecastedTransaction.Amount
+		}
+		out = append(out, stream)
+	}
+	return out, nil
+}
+
+// GetRecurringTransactions is the legacy fallback — queries the 60-day window of
+// transaction instances. Kept for resilience if the streams endpoint changes
+// shape; prefer GetRecurringStreams.
 func (c *MonarchClient) GetRecurringTransactions() ([]MTransaction, error) {
 	// Pull last 60 days of recurring to capture monthly bills
 	end := time.Now()
@@ -334,7 +427,6 @@ func (c *MonarchClient) GetRecurringTransactions() ([]MTransaction, error) {
 	if err := c.query(gql, vars, &resp); err != nil {
 		return nil, err
 	}
-	// Deduplicate by merchant name — we want unique recurring bills, not every instance
 	seen := map[string]bool{}
 	var out []MTransaction
 	for _, t := range resp.Data.AllTransactions.Results {
