@@ -93,7 +93,7 @@ func GenerateCandidates(ctx context.Context, in Inputs) ([]Candidate, error) {
 
 	// Holdings → CC candidates (only where we own ≥100 shares)
 	for _, h := range in.Holdings {
-		if h.Shares < 100 {
+		if h.Quantity < 100 {
 			continue
 		}
 		spot, chain, err := fetchUnderlying(ctx, in.Tasty, h.Symbol, metrics)
@@ -132,7 +132,7 @@ func gatherSymbols(in Inputs) []string {
 		}
 	}
 	for _, h := range in.Holdings {
-		if h.Shares >= 100 && !seen[h.Symbol] {
+		if h.Quantity >= 100 && !seen[h.Symbol] {
 			seen[h.Symbol] = true
 			out = append(out, h.Symbol)
 		}
