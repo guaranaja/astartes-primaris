@@ -196,7 +196,7 @@ func (s Snapshot) AsMarkdown() string {
 	m := s.Metrics
 	fmt.Fprintf(&b, "## Trading Performance\n\n")
 	fmt.Fprintf(&b, "- Lifetime P&L: $%.0f (funded $%.0f / sim $%.0f)\n", m.LifetimePnL, m.FundedPnL, m.SimPnL)
-	fmt.Fprintf(&b, "- Lifetime payouts: $%.0f across %d payouts\n", m.LifetimePayouts, m.PayoutCount)
+	fmt.Fprintf(&b, "- Lifetime payouts: $%.0f\n", m.LifetimePayouts)
 	fmt.Fprintf(&b, "- Monthly net: $%.0f · expenses $%.0f\n", m.MonthlyNetIncome, m.MonthlyExpenses)
 	fmt.Fprintf(&b, "- Funded capital: $%.0f · personal account value: $%.0f\n", m.FundedCapital, m.PersonalAccountValue)
 	fmt.Fprintf(&b, "- Profitable days: %d/%d\n\n", m.ProfitableDays, m.TotalTradingDays)
