@@ -3957,7 +3957,7 @@ App.updateWheelStatus = function(cycleId) {
         </div>
         <div>
           <label>Shares Held</label>
-          <input type="number" id="wuShares" class="input" value="${c.shares_held||0}" step="100">
+          <input type="number" id="wuShares" class="input" value="${c.shares_held||0}" step="1" min="0">
         </div>
       </div>
       <button type="submit" class="btn btn-primary btn-lg">Update</button>
