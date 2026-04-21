@@ -2636,6 +2636,51 @@ select.input option { background: var(--bg-1); }
   border-radius: 2px;
   line-height: 1.5;
 }
+.wheel-rec-quote {
+  margin-top: 4px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-2);
+}
+.wheel-rec-card.managed {
+  border-left: 3px solid var(--accent);
+  background: rgba(167, 139, 250, 0.04);
+}
+.wheel-rec-card.needs-review {
+  border-left: 3px solid var(--amber, #fbbf24);
+}
+.wheel-quality {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+  padding: 1px 6px;
+  border-radius: 2px;
+  font-family: var(--font-mono);
+}
+.wheel-quality.live {
+  background: rgba(45, 212, 160, 0.15);
+  color: var(--green);
+}
+.wheel-quality.estimated {
+  background: rgba(251, 191, 36, 0.15);
+  color: var(--amber, #fbbf24);
+}
+.wheel-exec {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+  padding: 1px 6px;
+  border-radius: 2px;
+  font-family: var(--font-mono);
+}
+.wheel-exec.ok {
+  background: rgba(45, 212, 160, 0.15);
+  color: var(--green);
+}
+.wheel-exec.blocked {
+  background: rgba(239, 68, 68, 0.15);
+  color: var(--red);
+}
 .wheel-watchlist {
   display: flex;
   flex-direction: column;

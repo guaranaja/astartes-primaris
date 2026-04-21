@@ -136,12 +136,46 @@ func (s *Service) RunOnce(ctx context.Context) {
 	scanCtx, cancel := context.WithTimeout(ctx, 3*time.Minute)
 	defer cancel()
 
+	// Pull current positions and buying power so the engine can dedup opens,
+	// generate close/roll recs for existing legs, and respect cash limits.
+	s.mu.Lock()
+	accts := s.accountCache
+	s.mu.Unlock()
+	if len(accts) == 0 {
+		if found, err := s.tasty.ListAccountNumbers(scanCtx); err == nil {
+			s.mu.Lock()
+			s.accountCache = found
+			accts = found
+			s.mu.Unlock()
+		}
+	}
+	var positions []tastytrade.Position
+	var buyingPower float64
+	primaryAcct := ""
+	if len(accts) > 0 {
+		primaryAcct = accts[0]
+		if p, err := s.tasty.ListPositions(scanCtx, primaryAcct); err == nil {
+			positions = p
+		} else {
+			s.logger.Warn("positions fetch failed", "error", err)
+		}
+		if bal, err := s.tasty.GetAccountBalance(scanCtx, primaryAcct); err == nil {
+			// Use derivative buying power; for CSPs it's the right cap.
+			buyingPower = bal.BuyingPower
+		} else {
+			s.logger.Warn("balance fetch failed", "error", err)
+		}
+	}
+
 	cands, err := GenerateCandidates(scanCtx, Inputs{
-		Config:    cfg,
-		Watchlist: watchlist,
-		Holdings:  holdings,
-		Tasty:     s.tasty,
-		Logger:    s.logger,
+		Config:      cfg,
+		Watchlist:   watchlist,
+		Holdings:    holdings,
+		Tasty:       s.tasty,
+		AccountNum:  primaryAcct,
+		BuyingPower: buyingPower,
+		Positions:   positions,
+		Logger:      s.logger,
 	})
 	if err != nil {
 		s.logger.Warn("wheel generate failed", "error", err)

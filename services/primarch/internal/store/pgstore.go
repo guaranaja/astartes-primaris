@@ -509,6 +509,13 @@ func (s *PGStore) ensureSchema() {
 		`CREATE INDEX IF NOT EXISTS wheel_rec_run_idx    ON wheel_recommendations(run_id)`,
 		`CREATE INDEX IF NOT EXISTS wheel_rec_status_idx ON wheel_recommendations(status, created_at DESC)`,
 		`CREATE INDEX IF NOT EXISTS wheel_rec_symbol_idx ON wheel_recommendations(symbol)`,
+		// v2 reliability columns — safe to ALTER on live DB.
+		`ALTER TABLE wheel_recommendations ADD COLUMN IF NOT EXISTS data_quality TEXT`,
+		`ALTER TABLE wheel_recommendations ADD COLUMN IF NOT EXISTS spread_pct DOUBLE PRECISION`,
+		`ALTER TABLE wheel_recommendations ADD COLUMN IF NOT EXISTS open_interest INTEGER`,
+		`ALTER TABLE wheel_recommendations ADD COLUMN IF NOT EXISTS volume INTEGER`,
+		`ALTER TABLE wheel_recommendations ADD COLUMN IF NOT EXISTS executable BOOLEAN DEFAULT FALSE`,
+		`ALTER TABLE wheel_recommendations ADD COLUMN IF NOT EXISTS existing_position_id TEXT`,
 	}
 	for _, stmt := range stmts {
 		if _, err := s.db.Exec(stmt); err != nil {
@@ -2841,13 +2848,16 @@ func (s *PGStore) InsertWheelRecommendations(recs []domain.WheelRecommendation) 
 			(id, run_id, action, symbol, underlying_price, option_type, strike,
 			 expiration, dte, delta, bid, ask, mid, premium, collateral,
 			 annualized_yield, iv_rank, score, rules_rationale, review_note,
-			 review_score, status, created_at)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)`,
+			 review_score, status, created_at, data_quality, spread_pct,
+			 open_interest, volume, executable, existing_position_id)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29)`,
 			r.ID, r.RunID, r.Action, r.Symbol, r.UnderlyingPrice,
 			nullStr(r.OptionType), r.Strike, nullStr(r.Expiration), r.DTE,
 			r.Delta, r.Bid, r.Ask, r.Mid, r.Premium, r.Collateral,
 			r.AnnualizedYield, r.IVRank, r.Score, nullStr(r.RulesRationale),
-			nullStr(r.ReviewNote), r.ReviewScore, r.Status, r.CreatedAt); err != nil {
+			nullStr(r.ReviewNote), r.ReviewScore, r.Status, r.CreatedAt,
+			nullStr(r.DataQuality), r.SpreadPct, nullInt(r.OpenInterest),
+			nullInt(r.Volume), r.Executable, nullStr(r.ExistingPositionID)); err != nil {
 			return fmt.Errorf("insert rec %s: %w", r.ID, err)
 		}
 	}
@@ -2861,7 +2871,10 @@ func (s *PGStore) ListWheelRecommendations(status string, limit int) []domain.Wh
 		COALESCE(mid,0), COALESCE(premium,0), COALESCE(collateral,0),
 		COALESCE(annualized_yield,0), COALESCE(iv_rank,0), score,
 		COALESCE(rules_rationale,''), COALESCE(review_note,''),
-		COALESCE(review_score,0), status, created_at, taken_at, dismissed_at
+		COALESCE(review_score,0), status, created_at, taken_at, dismissed_at,
+		COALESCE(data_quality,''), COALESCE(spread_pct,0),
+		COALESCE(open_interest,0), COALESCE(volume,0),
+		COALESCE(executable,FALSE), COALESCE(existing_position_id,'')
 		FROM wheel_recommendations WHERE 1=1`
 	var args []interface{}
 	idx := 0
@@ -2891,7 +2904,9 @@ func (s *PGStore) ListWheelRecommendations(status string, limit int) []domain.Wh
 			&r.Bid, &r.Ask, &r.Mid, &r.Premium, &r.Collateral,
 			&r.AnnualizedYield, &r.IVRank, &r.Score, &r.RulesRationale,
 			&r.ReviewNote, &r.ReviewScore, &r.Status, &r.CreatedAt,
-			&taken, &dismissed); err != nil {
+			&taken, &dismissed,
+			&r.DataQuality, &r.SpreadPct, &r.OpenInterest, &r.Volume,
+			&r.Executable, &r.ExistingPositionID); err != nil {
 			s.logger.Error("scan wheel rec", "error", err)
 			continue
 		}

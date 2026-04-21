@@ -4067,14 +4067,37 @@ App.renderWheelRecommendations = function() {
     csp_close: 'var(--red)', cc_close: 'var(--red)',
     csp_roll: 'var(--accent)', cc_roll: 'var(--accent)',
   };
-  el.innerHTML = recs.map(r => {
+  // Sort so close/roll (position management) come first, then opens by score
+  const managed = recs.filter(r => r.action.endsWith('_close') || r.action.endsWith('_roll'));
+  const opens = recs.filter(r => !r.action.endsWith('_close') && !r.action.endsWith('_roll'));
+  const ordered = [...managed, ...opens];
+
+  el.innerHTML = ordered.map(r => {
     const color = actionColor[r.action] || 'var(--text-2)';
     const label = actionLabel[r.action] || r.action;
+    const isManaged = r.action.endsWith('_close') || r.action.endsWith('_roll');
     const yieldTag = r.annualized_yield ? `${(r.annualized_yield * 100).toFixed(1)}% ann` : '';
     const ivTag = r.iv_rank ? `IVR ${Math.round(r.iv_rank * 100)}` : '';
-    const dteTag = r.dte ? `${r.dte}DTE` : '';
+    const dteTag = (r.dte || r.dte === 0) ? `${r.dte}DTE` : '';
+    const deltaTag = r.delta ? `Δ ${r.delta.toFixed(2)}` : '';
+    const spreadTag = r.spread_pct ? `sprd ${(r.spread_pct * 100).toFixed(1)}%` : '';
+    const oiTag = r.open_interest ? `OI ${r.open_interest}` : '';
+    // Data quality + executable status
+    let qualityBadge = '';
+    if (r.data_quality === 'live') {
+      qualityBadge = '<span class="wheel-quality live" title="Real market quotes used">LIVE</span>';
+    } else if (r.data_quality === 'estimated') {
+      qualityBadge = '<span class="wheel-quality estimated" title="Estimated from historical vol — verify in tastytrade before trading">EST</span>';
+    }
+    const execBadge = r.executable
+      ? '<span class="wheel-exec ok" title="Passes all gates — ready to execute">✓ READY</span>'
+      : '<span class="wheel-exec blocked" title="Manual review needed — see rationale">⚠ REVIEW</span>';
+    // Mid + bid/ask
+    const quoteLine = r.bid && r.ask
+      ? `$${fmt(r.mid)} mid ($${fmt(r.bid)} / $${fmt(r.ask)})`
+      : (r.mid ? `$${fmt(r.mid)} est` : '');
     return `
-      <div class="wheel-rec-card">
+      <div class="wheel-rec-card ${isManaged ? 'managed' : ''} ${!r.executable ? 'needs-review' : ''}">
         <div class="wheel-rec-header">
           <span class="wheel-rec-action" style="color:${color}">${esc(label)}</span>
           <span class="wheel-rec-symbol">${esc(r.symbol)}</span>
@@ -4082,14 +4105,20 @@ App.renderWheelRecommendations = function() {
           <span class="wheel-rec-exp">${esc(r.expiration || '')}</span>
           <div class="wheel-rec-tags">
             ${dteTag ? `<span class="wheel-rec-tag">${dteTag}</span>` : ''}
+            ${deltaTag ? `<span class="wheel-rec-tag">${deltaTag}</span>` : ''}
             ${yieldTag ? `<span class="wheel-rec-tag" style="color:var(--gold)">${yieldTag}</span>` : ''}
             ${ivTag ? `<span class="wheel-rec-tag">${ivTag}</span>` : ''}
+            ${spreadTag ? `<span class="wheel-rec-tag">${spreadTag}</span>` : ''}
+            ${oiTag ? `<span class="wheel-rec-tag">${oiTag}</span>` : ''}
+            ${qualityBadge}
+            ${execBadge}
           </div>
           <div class="wheel-rec-actions">
             <button class="btn btn-sm" onclick="App.takeWheelRec('${esc(r.id)}')">Taken</button>
             <button class="btn btn-sm" onclick="App.dismissWheelRec('${esc(r.id)}')">Dismiss</button>
           </div>
         </div>
+        ${quoteLine ? `<div class="wheel-rec-quote">${quoteLine}</div>` : ''}
         ${r.rules_rationale ? `<div class="wheel-rec-body">${esc(r.rules_rationale)}</div>` : ''}
         ${r.review_note ? `<div class="wheel-rec-review">Claude: ${esc(r.review_note)}</div>` : ''}
       </div>`;

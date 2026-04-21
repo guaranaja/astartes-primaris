@@ -50,6 +50,12 @@ const (
 	WheelRecExpired   = "expired"
 )
 
+// Data-quality labels. "live" = real market quotes; "estimated" = BSM/HV fallback.
+const (
+	WheelDataQualityLive      = "live"
+	WheelDataQualityEstimated = "estimated"
+)
+
 // WheelRecommendation is a single candidate trade. A Run groups a scan's recs.
 type WheelRecommendation struct {
 	ID               string     `json:"id"`
@@ -73,6 +79,15 @@ type WheelRecommendation struct {
 	RulesRationale   string     `json:"rules_rationale,omitempty"`
 	ReviewNote       string     `json:"review_note,omitempty"`
 	ReviewScore      float64    `json:"review_score,omitempty"`
+
+	// v2 reliability metadata
+	DataQuality       string  `json:"data_quality,omitempty"`       // live | estimated
+	SpreadPct         float64 `json:"spread_pct,omitempty"`         // (ask-bid)/mid
+	OpenInterest      int     `json:"open_interest,omitempty"`
+	Volume            int     `json:"volume,omitempty"`
+	Executable        bool    `json:"executable"`                    // all hard gates pass
+	ExistingPositionID string `json:"existing_position_id,omitempty"` // for close/roll recs
+
 	Status           string     `json:"status"`
 	CreatedAt        time.Time  `json:"created_at"`
 	TakenAt          *time.Time `json:"taken_at,omitempty"`

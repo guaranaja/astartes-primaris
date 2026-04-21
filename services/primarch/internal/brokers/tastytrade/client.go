@@ -269,6 +269,95 @@ func (c *Client) GetMarketMetrics(ctx context.Context, symbols []string) ([]Mark
 	return resp.Data.Items, nil
 }
 
+// ─── Market data (quotes) ───────────────────────────────────
+
+// Quote is a point-in-time market data snapshot used for reliability checks
+// in the wheel advisor — bid/ask, open interest (options only), volume.
+type Quote struct {
+	Symbol         string  `json:"symbol"`
+	InstrumentType string  // filled in by GetMarketData based on which bucket
+	Bid            float64 `json:"bid,string"`
+	Ask            float64 `json:"ask,string"`
+	BidSize        int     `json:"bid-size"`
+	AskSize        int     `json:"ask-size"`
+	Last           float64 `json:"last,string"`
+	Mark           float64 `json:"mark,string"`
+	Volume         int     `json:"volume"`
+	OpenInterest   int     `json:"open-interest"`
+	UpdatedAt      string  `json:"updated-at"`
+}
+
+// marketDataResp wraps tastytrade's /market-data/by-type response. The
+// "items" array mixes quote records across all instrument types requested.
+type marketDataResp struct {
+	Data struct {
+		Items []struct {
+			Symbol         string  `json:"symbol"`
+			InstrumentType string  `json:"instrument-type"`
+			Bid            string  `json:"bid"`
+			Ask            string  `json:"ask"`
+			BidSize        int     `json:"bid-size"`
+			AskSize        int     `json:"ask-size"`
+			Last           string  `json:"last"`
+			Mark           string  `json:"mark"`
+			Volume         int     `json:"volume"`
+			OpenInterest   int     `json:"open-interest"`
+			UpdatedAt      string  `json:"updated-at"`
+		} `json:"items"`
+	} `json:"data"`
+}
+
+// GetMarketData fetches snapshot quotes for a mixed batch of equities +
+// equity options. Options should be provided in tastytrade's formatted
+// symbol shape (from ChainStrike.Call / .Put fields).
+//
+// Up to ~100 items per call is safe; larger batches are chunked.
+func (c *Client) GetMarketData(ctx context.Context, equities []string, options []string) ([]Quote, error) {
+	if len(equities) == 0 && len(options) == 0 {
+		return nil, nil
+	}
+	params := url.Values{}
+	if len(equities) > 0 {
+		params.Set("equity", strings.Join(equities, ","))
+	}
+	if len(options) > 0 {
+		params.Set("equity-option", strings.Join(options, ","))
+	}
+	var resp marketDataResp
+	if err := c.authedGet(ctx, "/market-data/by-type?"+params.Encode(), &resp); err != nil {
+		return nil, err
+	}
+	out := make([]Quote, 0, len(resp.Data.Items))
+	for _, it := range resp.Data.Items {
+		q := Quote{
+			Symbol:         it.Symbol,
+			InstrumentType: it.InstrumentType,
+			BidSize:        it.BidSize,
+			AskSize:        it.AskSize,
+			Volume:         it.Volume,
+			OpenInterest:   it.OpenInterest,
+			UpdatedAt:      it.UpdatedAt,
+		}
+		// Strings come through when values are present; may be empty strings
+		// outside market hours. Use parseFloat with 0 fallback.
+		q.Bid = parseFloat(it.Bid)
+		q.Ask = parseFloat(it.Ask)
+		q.Last = parseFloat(it.Last)
+		q.Mark = parseFloat(it.Mark)
+		out = append(out, q)
+	}
+	return out, nil
+}
+
+func parseFloat(s string) float64 {
+	if s == "" {
+		return 0
+	}
+	var v float64
+	fmt.Sscanf(s, "%f", &v)
+	return v
+}
+
 // ─── Accounts + positions ───────────────────────────────────
 
 type Position struct {
