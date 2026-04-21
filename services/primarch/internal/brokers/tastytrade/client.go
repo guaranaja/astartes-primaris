@@ -59,7 +59,7 @@ func NewFromEnv(logger *slog.Logger) *Client {
 	if base == "" {
 		base = defaultBaseURL
 	}
-	return &Client{
+	c := &Client{
 		baseURL:      base,
 		clientID:     clientID,
 		clientSecret: os.Getenv("TASTYTRADE_CLIENT_SECRET"), // optional
@@ -67,6 +67,13 @@ func NewFromEnv(logger *slog.Logger) *Client {
 		http:         &http.Client{Timeout: 30 * time.Second},
 		logger:       logger,
 	}
+	// When running on Cloud Run, persist rotated refresh tokens back to Secret
+	// Manager so cold starts don't read a stale value. Env points to the
+	// short secret name (e.g. "tastytrade-refresh-token").
+	if cb := newGCPSecretPersister(os.Getenv("TASTYTRADE_REFRESH_TOKEN_SECRET"), logger); cb != nil {
+		c.OnTokenRotated = cb
+	}
+	return c
 }
 
 // Available reports whether credentials are in place.
