@@ -15,10 +15,53 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 )
+
+// flexFloat / flexInt tolerate tastytrade's inconsistent numeric encoding —
+// the same field can arrive quoted on one endpoint and bare on another.
+type flexFloat float64
+
+func (f *flexFloat) UnmarshalJSON(data []byte) error {
+	if len(data) == 0 || string(data) == "null" {
+		return nil
+	}
+	if len(data) >= 2 && data[0] == '"' && data[len(data)-1] == '"' {
+		data = data[1 : len(data)-1]
+	}
+	if len(data) == 0 {
+		return nil
+	}
+	v, err := strconv.ParseFloat(string(data), 64)
+	if err != nil {
+		return err
+	}
+	*f = flexFloat(v)
+	return nil
+}
+
+type flexInt int64
+
+func (i *flexInt) UnmarshalJSON(data []byte) error {
+	if len(data) == 0 || string(data) == "null" {
+		return nil
+	}
+	if len(data) >= 2 && data[0] == '"' && data[len(data)-1] == '"' {
+		data = data[1 : len(data)-1]
+	}
+	if len(data) == 0 {
+		return nil
+	}
+	v, err := strconv.ParseFloat(string(data), 64)
+	if err != nil {
+		return err
+	}
+	*i = flexInt(v)
+	return nil
+}
 
 const (
 	defaultBaseURL  = "https://api.tastyworks.com"
@@ -250,11 +293,32 @@ func (c *Client) GetOptionChainNested(ctx context.Context, symbol string) (*Opti
 // ─── Market metrics ─────────────────────────────────────────
 
 type MarketMetric struct {
-	Symbol                      string  `json:"symbol"`
-	ImpliedVolatilityIndexRank  float64 `json:"implied-volatility-index-rank,string"`
-	HistoricalVolatility30d     float64 `json:"historical-volatility-30-day,string"`
-	BetaMarket                  float64 `json:"beta,string"`
-	MarketCap                   float64 `json:"market-cap,string"`
+	Symbol                     string
+	ImpliedVolatilityIndexRank float64
+	HistoricalVolatility30d    float64
+	BetaMarket                 float64
+	MarketCap                  float64
+}
+
+// UnmarshalJSON handles tastytrade's inconsistent encoding (bare vs. quoted
+// numerics) without forcing callers to touch named-type arithmetic.
+func (m *MarketMetric) UnmarshalJSON(data []byte) error {
+	var wire struct {
+		Symbol                     string    `json:"symbol"`
+		ImpliedVolatilityIndexRank flexFloat `json:"implied-volatility-index-rank"`
+		HistoricalVolatility30d    flexFloat `json:"historical-volatility-30-day"`
+		BetaMarket                 flexFloat `json:"beta"`
+		MarketCap                  flexFloat `json:"market-cap"`
+	}
+	if err := json.Unmarshal(data, &wire); err != nil {
+		return err
+	}
+	m.Symbol = wire.Symbol
+	m.ImpliedVolatilityIndexRank = float64(wire.ImpliedVolatilityIndexRank)
+	m.HistoricalVolatility30d = float64(wire.HistoricalVolatility30d)
+	m.BetaMarket = float64(wire.BetaMarket)
+	m.MarketCap = float64(wire.MarketCap)
+	return nil
 }
 
 type marketMetricsResp struct {
@@ -303,12 +367,12 @@ type marketDataResp struct {
 			InstrumentType string  `json:"instrument-type"`
 			Bid            string  `json:"bid"`
 			Ask            string  `json:"ask"`
-			BidSize        int     `json:"bid-size"`
-			AskSize        int     `json:"ask-size"`
+			BidSize        flexInt `json:"bid-size"`
+			AskSize        flexInt `json:"ask-size"`
 			Last           string  `json:"last"`
 			Mark           string  `json:"mark"`
-			Volume         int     `json:"volume"`
-			OpenInterest   int     `json:"open-interest"`
+			Volume         flexInt `json:"volume"`
+			OpenInterest   flexInt `json:"open-interest"`
 			UpdatedAt      string  `json:"updated-at"`
 		} `json:"items"`
 	} `json:"data"`
@@ -339,10 +403,10 @@ func (c *Client) GetMarketData(ctx context.Context, equities []string, options [
 		q := Quote{
 			Symbol:         it.Symbol,
 			InstrumentType: it.InstrumentType,
-			BidSize:        it.BidSize,
-			AskSize:        it.AskSize,
-			Volume:         it.Volume,
-			OpenInterest:   it.OpenInterest,
+			BidSize:        int(it.BidSize),
+			AskSize:        int(it.AskSize),
+			Volume:         int(it.Volume),
+			OpenInterest:   int(it.OpenInterest),
 			UpdatedAt:      it.UpdatedAt,
 		}
 		// Strings come through when values are present; may be empty strings
