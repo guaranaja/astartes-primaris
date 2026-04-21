@@ -753,8 +753,11 @@
             <h2>Wheel Watchlist</h2>
             <button class="btn btn-sm btn-primary" onclick="App.addWheelWatchlistEntry()">+ Add Ticker</button>
           </div>
+          <p style="font-size:11px;color:var(--text-3);margin:-4px 0 8px 0;line-height:1.5">
+            Your holdings are already wheel candidates automatically. Only add tickers here if you want to wheel names you don't currently own, or to override defaults (delta, max position, min yield) on any ticker.
+          </p>
           <div id="wheelWatchlist" class="wheel-watchlist">
-            <div class="empty-state">No tickers — add tickers you're willing to sell puts on</div>
+            <div class="empty-state">No tickers — add tickers you want to wheel that you don't already hold</div>
           </div>
         </div>
       </div>

@@ -91,58 +91,92 @@ func GenerateCandidates(ctx context.Context, in Inputs) ([]Candidate, error) {
 	var out []Candidate
 	out = append(out, closeRoll...)
 
-	// 3) CSP candidates from the watchlist.
-	remainingBP := in.BuyingPower
-	for _, entry := range in.Watchlist {
-		if !entry.Active {
+	// 3 + 4 — unified per-symbol decision. We walk the union of watchlist +
+	// holdings so you never have to add a held ticker to the watchlist just
+	// to get recommendations. For each symbol:
+	//   held ≥ 100 shares  → Covered Call (once the lot is established)
+	//   held < 100 shares  → Cash-Secured Put (grow toward a full lot)
+	//   not held           → Cash-Secured Put (enter the wheel)
+	// Watchlist entry, if present, provides per-ticker overrides either way.
+	type universe struct {
+		symbol   string
+		held     float64
+		avgCost  float64
+		wl       *domain.WheelWatchlistEntry
+	}
+
+	uni := map[string]*universe{}
+	for i := range in.Holdings {
+		h := in.Holdings[i]
+		uni[h.Symbol] = &universe{symbol: h.Symbol, held: h.Quantity, avgCost: h.AvgCost}
+	}
+	for i := range in.Watchlist {
+		e := &in.Watchlist[i]
+		if !e.Active {
 			continue
 		}
-		if _, has := existingPuts[entry.Symbol]; has {
-			continue // already have a short put open on this name
+		u, ok := uni[e.Symbol]
+		if !ok {
+			u = &universe{symbol: e.Symbol}
+			uni[e.Symbol] = u
 		}
-		spot, ok := spots[entry.Symbol]
+		u.wl = e
+	}
+
+	remainingBP := in.BuyingPower
+	for _, u := range uni {
+		spot, ok := spots[u.symbol]
 		if !ok || spot <= 0 {
 			continue
 		}
-		m := metrics[entry.Symbol]
-		putDelta := derefFloat(entry.TargetPutDelta, in.Config.DefaultPutDelta)
-		minYield := derefFloat(entry.MinPremiumYield, in.Config.MinPremiumYield)
-		cand := bestOption(ctx, in, entry.Symbol, spot, "P", putDelta, minYield, 0, m)
+		m := metrics[u.symbol]
+
+		// Pick the side based on current share count.
+		if u.held >= 100 {
+			if _, has := existingCalls[u.symbol]; has {
+				continue
+			}
+			callDelta := in.Config.DefaultCallDelta
+			minYield := in.Config.MinPremiumYield
+			if u.wl != nil {
+				if u.wl.TargetCallDelta != nil {
+					callDelta = *u.wl.TargetCallDelta
+				}
+				if u.wl.MinPremiumYield != nil {
+					minYield = *u.wl.MinPremiumYield
+				}
+			}
+			cand := bestOption(ctx, in, u.symbol, spot, "C", callDelta, minYield, u.avgCost, m)
+			if cand == nil {
+				continue
+			}
+			out = append(out, *cand)
+			continue
+		}
+
+		// Held <100 or not held → CSP candidate.
+		if _, has := existingPuts[u.symbol]; has {
+			continue
+		}
+		putDelta := in.Config.DefaultPutDelta
+		minYield := in.Config.MinPremiumYield
+		if u.wl != nil {
+			if u.wl.TargetPutDelta != nil {
+				putDelta = *u.wl.TargetPutDelta
+			}
+			if u.wl.MinPremiumYield != nil {
+				minYield = *u.wl.MinPremiumYield
+			}
+		}
+		cand := bestOption(ctx, in, u.symbol, spot, "P", putDelta, minYield, 0, m)
 		if cand == nil {
 			continue
 		}
-		// Respect available buying power — don't recommend more collateral than we have.
 		if cand.Collateral > remainingBP && remainingBP > 0 {
 			cand.Executable = false
 			cand.Rationale += fmt.Sprintf("\nCollateral $%.0f exceeds remaining BP $%.0f — recommend smaller size or skip.", cand.Collateral, remainingBP)
 		} else {
 			remainingBP -= cand.Collateral
-		}
-		out = append(out, *cand)
-	}
-
-	// 4) CC candidates from current holdings (100+ share lots, dedup against open calls).
-	for _, h := range in.Holdings {
-		if h.Quantity < 100 {
-			continue
-		}
-		if _, has := existingCalls[h.Symbol]; has {
-			continue
-		}
-		spot, ok := spots[h.Symbol]
-		if !ok || spot <= 0 {
-			continue
-		}
-		m := metrics[h.Symbol]
-		callDelta := in.Config.DefaultCallDelta
-		for _, wl := range in.Watchlist {
-			if wl.Symbol == h.Symbol && wl.TargetCallDelta != nil {
-				callDelta = *wl.TargetCallDelta
-			}
-		}
-		cand := bestOption(ctx, in, h.Symbol, spot, "C", callDelta, in.Config.MinPremiumYield, h.AvgCost, m)
-		if cand == nil {
-			continue
 		}
 		out = append(out, *cand)
 	}
@@ -633,6 +667,8 @@ func fetchMetrics(ctx context.Context, in Inputs, symbols []string) map[string]t
 
 // ─── Misc ──────────────────────────────────────────────────
 
+// gatherSymbols returns the union of watchlist + held symbols. Any quantity
+// qualifies — held lots < 100 become CSP candidates to build toward a full lot.
 func gatherSymbols(in Inputs) []string {
 	seen := map[string]bool{}
 	var out []string
@@ -643,7 +679,7 @@ func gatherSymbols(in Inputs) []string {
 		}
 	}
 	for _, h := range in.Holdings {
-		if h.Quantity >= 100 && !seen[h.Symbol] {
+		if h.Quantity > 0 && !seen[h.Symbol] {
 			seen[h.Symbol] = true
 			out = append(out, h.Symbol)
 		}
