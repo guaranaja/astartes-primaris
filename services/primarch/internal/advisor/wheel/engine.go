@@ -44,6 +44,15 @@ type Candidate struct {
 	ExistingPositionID string
 	Rationale          string
 	Score              float64
+
+	// Deterministic skip signals from the rules engine. If any are present,
+	// the seeded verdict is "skip" and Claude review is bypassed to save tokens.
+	Vetoes []string
+	// Seeded verdict / reasons — may be overridden by a successful Claude review.
+	Verdict        string
+	VerdictReasons []string
+	// TargetDelta is carried along so the rationale + reasons can reference it.
+	TargetDelta float64
 }
 
 // Inputs for the rules engine.
@@ -237,7 +246,7 @@ func evaluateExistingPositions(in Inputs, spots map[string]float64) (map[string]
 
 		// Close at profit-take.
 		if profitPct >= cfg.ProfitTakePct {
-			recs = append(recs, Candidate{
+			closeCand := Candidate{
 				Action:             map[string]string{"P": domain.WheelActionCSPClose, "C": domain.WheelActionCCClose}[optType],
 				Symbol:             under,
 				UnderlyingPrice:    spot,
@@ -255,13 +264,18 @@ func evaluateExistingPositions(in Inputs, spots map[string]float64) (map[string]
 					expDate, strike, optType, profitPct*100, openPrice, currentMark,
 				),
 				Score: 100 + profitPct*50, // high score, beats all opens
-			})
+			}
+			closeCand.Verdict = domain.WheelVerdictTake
+			closeCand.VerdictReasons = []string{
+				fmt.Sprintf("%.0f%% of max profit captured — buy back cheap", profitPct*100),
+			}
+			recs = append(recs, closeCand)
 			continue
 		}
 
 		// Roll at DTE threshold if ITM.
 		if dte <= cfg.RollDTE && inTheMoney {
-			recs = append(recs, Candidate{
+			rollCand := Candidate{
 				Action:             map[string]string{"P": domain.WheelActionCSPRoll, "C": domain.WheelActionCCRoll}[optType],
 				Symbol:             under,
 				UnderlyingPrice:    spot,
@@ -279,7 +293,12 @@ func evaluateExistingPositions(in Inputs, spots map[string]float64) (map[string]
 					expDate, strike, optType, dte, spot,
 				),
 				Score: 90 + (float64(cfg.RollDTE-dte) * 2),
-			})
+			}
+			rollCand.Verdict = domain.WheelVerdictWait
+			rollCand.VerdictReasons = []string{
+				fmt.Sprintf("%d DTE and ITM — manual roll selection required", dte),
+			}
+			recs = append(recs, rollCand)
 			continue
 		}
 	}
@@ -493,13 +512,91 @@ func bestOption(ctx context.Context, in Inputs, symbol string, spot float64, sid
 			DataQuality:     quality,
 			Executable:      executable,
 			Score:           score,
+			TargetDelta:     targetDelta,
 		}
 		cand.Rationale = buildRationale(cand, targetDelta, costBasis)
+		cand.Vetoes = computeVetoes(cand)
+		cand.Verdict, cand.VerdictReasons = seedVerdict(cand)
 		if best == nil || cand.Score > best.Score {
 			best = cand
 		}
 	}
 	return best
+}
+
+// Veto thresholds. These drive the deterministic "skip" reasons — hard
+// conditions that make a trade a bad idea regardless of the Claude review.
+const (
+	vetoSpreadPct      = 0.25 // wider than 25% of mid = execution risk
+	vetoOpenInterest   = 10   // thin enough you can't reliably get out
+	vetoDeltaMismatch  = 0.15 // |realΔ| more than 15 points off target
+	vetoIVRankLow      = 0.15 // IV rank below 15 — not getting paid for the risk
+	vetoAnnualYieldLow = 0.10 // sub-10% annualized is rarely worth the risk/capital
+)
+
+// computeVetoes returns a slice of deterministic skip signals for this
+// candidate. An empty slice means no hard vetoes — the candidate is eligible
+// for a Claude review that can still downgrade to wait/skip.
+func computeVetoes(c *Candidate) []string {
+	var v []string
+	if !c.Executable {
+		v = append(v, "flagged non-executable by liquidity / data gates")
+	}
+	if c.DataQuality != domain.WheelDataQualityLive {
+		v = append(v, "quotes estimated (no live market data)")
+	}
+	// Skip liquidity checks when the quote itself wasn't live — the numbers are
+	// meaningless then and the data-quality veto already covers it.
+	if c.DataQuality == domain.WheelDataQualityLive {
+		if c.SpreadPct > vetoSpreadPct {
+			v = append(v, fmt.Sprintf("spread too wide (%.0f%% of mid)", c.SpreadPct*100))
+		}
+		if c.OpenInterest > 0 && c.OpenInterest < vetoOpenInterest {
+			v = append(v, fmt.Sprintf("open interest too low (%d)", c.OpenInterest))
+		}
+		if c.OpenInterest == 0 {
+			v = append(v, "zero open interest")
+		}
+	}
+	if c.TargetDelta > 0 {
+		absDelta := math.Abs(c.Delta)
+		if math.Abs(absDelta-c.TargetDelta) > vetoDeltaMismatch {
+			v = append(v, fmt.Sprintf("delta %.2f far from target %.2f", absDelta, c.TargetDelta))
+		}
+	}
+	if c.IVRank > 0 && c.IVRank < vetoIVRankLow {
+		v = append(v, fmt.Sprintf("IV rank low (%.0f) — not getting paid for risk", c.IVRank*100))
+	}
+	if c.AnnualizedYield < vetoAnnualYieldLow {
+		v = append(v, fmt.Sprintf("annualized yield weak (%.1f%%)", c.AnnualizedYield*100))
+	}
+	return v
+}
+
+// seedVerdict returns the pre-review verdict + initial reasons based purely on
+// the deterministic vetoes. Claude review can upgrade/downgrade from here.
+func seedVerdict(c *Candidate) (string, []string) {
+	if len(c.Vetoes) > 0 {
+		// Skip means there's at least one hard reason to pass. Reasons list
+		// starts with the vetoes themselves so the UI can just render them.
+		return domain.WheelVerdictSkip, append([]string(nil), c.Vetoes...)
+	}
+	// Close / roll recs carry their own rationale and are always "take" — they
+	// represent a position already established where the action is defensive.
+	if c.Action == domain.WheelActionCSPClose || c.Action == domain.WheelActionCCClose ||
+		c.Action == domain.WheelActionCSPRoll || c.Action == domain.WheelActionCCRoll {
+		return domain.WheelVerdictTake, []string{"managing existing position — see rationale"}
+	}
+	// Otherwise the candidate cleared every deterministic gate. Default to
+	// "take" with a short positive reason; Claude review can still override.
+	reasons := []string{
+		fmt.Sprintf("annualized yield %.1f%% at Δ %.2f (target %.2f)",
+			c.AnnualizedYield*100, math.Abs(c.Delta), c.TargetDelta),
+	}
+	if c.IVRank >= 0.50 {
+		reasons = append(reasons, fmt.Sprintf("IV rank elevated (%.0f)", c.IVRank*100))
+	}
+	return domain.WheelVerdictTake, reasons
 }
 
 func buildRationale(c *Candidate, targetDelta, costBasis float64) string {
@@ -741,6 +838,9 @@ func ToRecommendations(runID string, cands []Candidate) []domain.WheelRecommenda
 			Volume:             c.Volume,
 			Executable:         c.Executable,
 			ExistingPositionID: c.ExistingPositionID,
+			Verdict:            c.Verdict,
+			Vetoes:             c.Vetoes,
+			VerdictReasons:     c.VerdictReasons,
 			Status:             domain.WheelRecFresh,
 			CreatedAt:          now,
 		})

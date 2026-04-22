@@ -4067,61 +4067,118 @@ App.renderWheelRecommendations = function() {
     csp_close: 'var(--red)', cc_close: 'var(--red)',
     csp_roll: 'var(--accent)', cc_roll: 'var(--accent)',
   };
-  // Sort so close/roll (position management) come first, then opens by score
-  const managed = recs.filter(r => r.action.endsWith('_close') || r.action.endsWith('_roll'));
-  const opens = recs.filter(r => !r.action.endsWith('_close') && !r.action.endsWith('_roll'));
-  const ordered = [...managed, ...opens];
+  // Group by ticker — one section per symbol, management actions first then
+  // opens sorted by verdict (take → wait → skip) then score.
+  const verdictOrder = { take: 0, wait: 1, skip: 2, '': 3 };
+  const sortRecs = (a, b) => {
+    const am = a.action.endsWith('_close') || a.action.endsWith('_roll');
+    const bm = b.action.endsWith('_close') || b.action.endsWith('_roll');
+    if (am !== bm) return am ? -1 : 1;
+    const va = verdictOrder[a.verdict || ''] ?? 3;
+    const vb = verdictOrder[b.verdict || ''] ?? 3;
+    if (va !== vb) return va - vb;
+    return (b.score || 0) - (a.score || 0);
+  };
+  const grouped = {};
+  for (const r of recs) {
+    (grouped[r.symbol] ||= []).push(r);
+  }
+  const symbols = Object.keys(grouped).sort();
 
-  el.innerHTML = ordered.map(r => {
-    const color = actionColor[r.action] || 'var(--text-2)';
-    const label = actionLabel[r.action] || r.action;
-    const isManaged = r.action.endsWith('_close') || r.action.endsWith('_roll');
-    const yieldTag = r.annualized_yield ? `${(r.annualized_yield * 100).toFixed(1)}% ann` : '';
-    const ivTag = r.iv_rank ? `IVR ${Math.round(r.iv_rank * 100)}` : '';
-    const dteTag = (r.dte || r.dte === 0) ? `${r.dte}DTE` : '';
-    const deltaTag = r.delta ? `Δ ${r.delta.toFixed(2)}` : '';
-    const spreadTag = r.spread_pct ? `sprd ${(r.spread_pct * 100).toFixed(1)}%` : '';
-    const oiTag = r.open_interest ? `OI ${r.open_interest}` : '';
-    // Data quality + executable status
-    let qualityBadge = '';
-    if (r.data_quality === 'live') {
-      qualityBadge = '<span class="wheel-quality live" title="Real market quotes used">LIVE</span>';
-    } else if (r.data_quality === 'estimated') {
-      qualityBadge = '<span class="wheel-quality estimated" title="Estimated from historical vol — verify in tastytrade before trading">EST</span>';
-    }
-    const execBadge = r.executable
-      ? '<span class="wheel-exec ok" title="Passes all gates — ready to execute">✓ READY</span>'
-      : '<span class="wheel-exec blocked" title="Manual review needed — see rationale">⚠ REVIEW</span>';
-    // Mid + bid/ask
-    const quoteLine = r.bid && r.ask
-      ? `$${fmt(r.mid)} mid ($${fmt(r.bid)} / $${fmt(r.ask)})`
-      : (r.mid ? `$${fmt(r.mid)} est` : '');
+  el.innerHTML = symbols.map(sym => {
+    const list = grouped[sym].slice().sort(sortRecs);
+    // Use the best verdict on this ticker as the section badge colour.
+    const bestVerdict = list.reduce((best, r) => {
+      const v = verdictOrder[r.verdict || ''] ?? 3;
+      return v < best.rank ? { verdict: r.verdict, rank: v } : best;
+    }, { verdict: '', rank: 3 }).verdict;
+
+    const cards = list.map(r => {
+      const color = actionColor[r.action] || 'var(--text-2)';
+      const label = actionLabel[r.action] || r.action;
+      const isManaged = r.action.endsWith('_close') || r.action.endsWith('_roll');
+      const yieldTag = r.annualized_yield ? `${(r.annualized_yield * 100).toFixed(1)}% ann` : '';
+      const ivTag = r.iv_rank ? `IVR ${Math.round(r.iv_rank * 100)}` : '';
+      const dteTag = (r.dte || r.dte === 0) ? `${r.dte}DTE` : '';
+      const deltaTag = r.delta ? `Δ ${r.delta.toFixed(2)}` : '';
+      const spreadTag = r.spread_pct ? `sprd ${(r.spread_pct * 100).toFixed(1)}%` : '';
+      const oiTag = r.open_interest ? `OI ${r.open_interest}` : '';
+      let qualityBadge = '';
+      if (r.data_quality === 'live') {
+        qualityBadge = '<span class="wheel-quality live" title="Real market quotes used">LIVE</span>';
+      } else if (r.data_quality === 'estimated') {
+        qualityBadge = '<span class="wheel-quality estimated" title="Estimated from historical vol — verify in tastytrade before trading">EST</span>';
+      }
+      const execBadge = r.executable
+        ? '<span class="wheel-exec ok" title="Passes all gates — ready to execute">✓ READY</span>'
+        : '<span class="wheel-exec blocked" title="Manual review needed — see rationale">⚠ REVIEW</span>';
+      const quoteLine = r.bid && r.ask
+        ? `$${fmt(r.mid)} mid ($${fmt(r.bid)} / $${fmt(r.ask)})`
+        : (r.mid ? `$${fmt(r.mid)} est` : '');
+
+      // Verdict badge + reasons block — the pre-trade decision.
+      const verdict = (r.verdict || '').toLowerCase();
+      const verdictMap = {
+        take: { label: 'TAKE', cls: 'take', title: 'Conditions favor the trade — ready to execute.' },
+        wait: { label: 'WAIT', cls: 'wait', title: 'Marginal — re-check before executing.' },
+        skip: { label: 'SKIP', cls: 'skip', title: 'Hard reason(s) to pass on this trade.' },
+      };
+      const v = verdictMap[verdict];
+      const verdictBadge = v
+        ? `<span class="wheel-verdict ${v.cls}" title="${v.title}">${v.label}</span>`
+        : '';
+      const reasons = Array.isArray(r.verdict_reasons) ? r.verdict_reasons : [];
+      const vetoes = Array.isArray(r.vetoes) ? r.vetoes : [];
+      const reasonItems = reasons.map(x => `<li>${esc(x)}</li>`).join('');
+      const vetoItems = vetoes.map(x => `<li>${esc(x)}</li>`).join('');
+      const decisionBlock = (reasons.length || vetoes.length)
+        ? `<div class="wheel-rec-decision verdict-${v ? v.cls : ''}">
+             ${reasonItems ? `<ul class="wheel-rec-reasons">${reasonItems}</ul>` : ''}
+             ${vetoItems ? `<ul class="wheel-rec-vetoes" title="Hard reasons to pass">${vetoItems}</ul>` : ''}
+           </div>`
+        : '';
+
+      return `
+        <div class="wheel-rec-card ${isManaged ? 'managed' : ''} ${!r.executable ? 'needs-review' : ''} verdict-${v ? v.cls : 'none'}">
+          <div class="wheel-rec-header">
+            ${verdictBadge}
+            <span class="wheel-rec-action" style="color:${color}">${esc(label)}</span>
+            <span class="wheel-rec-strike">$${fmt(r.strike)} ${esc(r.option_type || '')}</span>
+            <span class="wheel-rec-exp">${esc(r.expiration || '')}</span>
+            <div class="wheel-rec-tags">
+              ${dteTag ? `<span class="wheel-rec-tag">${dteTag}</span>` : ''}
+              ${deltaTag ? `<span class="wheel-rec-tag">${deltaTag}</span>` : ''}
+              ${yieldTag ? `<span class="wheel-rec-tag" style="color:var(--gold)">${yieldTag}</span>` : ''}
+              ${ivTag ? `<span class="wheel-rec-tag">${ivTag}</span>` : ''}
+              ${spreadTag ? `<span class="wheel-rec-tag">${spreadTag}</span>` : ''}
+              ${oiTag ? `<span class="wheel-rec-tag">${oiTag}</span>` : ''}
+              ${qualityBadge}
+              ${execBadge}
+            </div>
+            <div class="wheel-rec-actions">
+              <button class="btn btn-sm" onclick="App.takeWheelRec('${esc(r.id)}')">Taken</button>
+              <button class="btn btn-sm" onclick="App.dismissWheelRec('${esc(r.id)}')">Dismiss</button>
+            </div>
+          </div>
+          ${decisionBlock}
+          ${quoteLine ? `<div class="wheel-rec-quote">${quoteLine}</div>` : ''}
+          ${r.rules_rationale ? `<div class="wheel-rec-body">${esc(r.rules_rationale)}</div>` : ''}
+          ${r.review_note ? `<div class="wheel-rec-review">Claude: ${esc(r.review_note)}</div>` : ''}
+        </div>`;
+    }).join('');
+
+    const headerBadge = bestVerdict
+      ? `<span class="wheel-ticker-verdict verdict-${bestVerdict}">${bestVerdict.toUpperCase()}</span>`
+      : '';
     return `
-      <div class="wheel-rec-card ${isManaged ? 'managed' : ''} ${!r.executable ? 'needs-review' : ''}">
-        <div class="wheel-rec-header">
-          <span class="wheel-rec-action" style="color:${color}">${esc(label)}</span>
-          <span class="wheel-rec-symbol">${esc(r.symbol)}</span>
-          <span class="wheel-rec-strike">$${fmt(r.strike)} ${esc(r.option_type || '')}</span>
-          <span class="wheel-rec-exp">${esc(r.expiration || '')}</span>
-          <div class="wheel-rec-tags">
-            ${dteTag ? `<span class="wheel-rec-tag">${dteTag}</span>` : ''}
-            ${deltaTag ? `<span class="wheel-rec-tag">${deltaTag}</span>` : ''}
-            ${yieldTag ? `<span class="wheel-rec-tag" style="color:var(--gold)">${yieldTag}</span>` : ''}
-            ${ivTag ? `<span class="wheel-rec-tag">${ivTag}</span>` : ''}
-            ${spreadTag ? `<span class="wheel-rec-tag">${spreadTag}</span>` : ''}
-            ${oiTag ? `<span class="wheel-rec-tag">${oiTag}</span>` : ''}
-            ${qualityBadge}
-            ${execBadge}
-          </div>
-          <div class="wheel-rec-actions">
-            <button class="btn btn-sm" onclick="App.takeWheelRec('${esc(r.id)}')">Taken</button>
-            <button class="btn btn-sm" onclick="App.dismissWheelRec('${esc(r.id)}')">Dismiss</button>
-          </div>
-        </div>
-        ${quoteLine ? `<div class="wheel-rec-quote">${quoteLine}</div>` : ''}
-        ${r.rules_rationale ? `<div class="wheel-rec-body">${esc(r.rules_rationale)}</div>` : ''}
-        ${r.review_note ? `<div class="wheel-rec-review">Claude: ${esc(r.review_note)}</div>` : ''}
-      </div>`;
+      <section class="wheel-ticker-group">
+        <header class="wheel-ticker-header">
+          <h4 class="wheel-ticker-symbol">${esc(sym)}</h4>
+          ${headerBadge}
+          <span class="wheel-ticker-count">${list.length} candidate${list.length === 1 ? '' : 's'}</span>
+        </header>
+        ${cards}
+      </section>`;
   }).join('');
 };
 

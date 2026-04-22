@@ -2681,6 +2681,100 @@ select.input option { background: var(--bg-1); }
   background: rgba(239, 68, 68, 0.15);
   color: var(--red);
 }
+.wheel-ticker-group {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px 10px;
+  margin-bottom: 10px;
+  background: rgba(255, 255, 255, 0.015);
+}
+.wheel-ticker-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 2px 0 8px;
+  border-bottom: 1px dashed var(--border);
+  margin-bottom: 8px;
+}
+.wheel-ticker-symbol {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 0;
+  color: var(--text-1);
+  letter-spacing: 0.05em;
+}
+.wheel-ticker-count {
+  font-size: 11px;
+  color: var(--text-2);
+  margin-left: auto;
+}
+.wheel-ticker-verdict {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 3px;
+  font-family: var(--font-mono);
+  letter-spacing: 0.08em;
+}
+.wheel-verdict {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 3px;
+  font-family: var(--font-mono);
+  letter-spacing: 0.08em;
+  margin-right: 4px;
+}
+.wheel-verdict.take, .wheel-ticker-verdict.verdict-take {
+  background: rgba(45, 212, 160, 0.18);
+  color: var(--green);
+}
+.wheel-verdict.wait, .wheel-ticker-verdict.verdict-wait {
+  background: rgba(251, 191, 36, 0.18);
+  color: var(--amber, #fbbf24);
+}
+.wheel-verdict.skip, .wheel-ticker-verdict.verdict-skip {
+  background: rgba(239, 68, 68, 0.18);
+  color: var(--red);
+}
+.wheel-rec-card.verdict-take {
+  border-left: 3px solid var(--green);
+}
+.wheel-rec-card.verdict-wait {
+  border-left: 3px solid var(--amber, #fbbf24);
+}
+.wheel-rec-card.verdict-skip {
+  border-left: 3px solid var(--red);
+  opacity: 0.85;
+}
+.wheel-rec-decision {
+  margin-top: 6px;
+  padding: 6px 10px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.02);
+  font-size: 11px;
+}
+.wheel-rec-decision.verdict-take {
+  background: rgba(45, 212, 160, 0.06);
+}
+.wheel-rec-decision.verdict-wait {
+  background: rgba(251, 191, 36, 0.06);
+}
+.wheel-rec-decision.verdict-skip {
+  background: rgba(239, 68, 68, 0.06);
+}
+.wheel-rec-reasons, .wheel-rec-vetoes {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--text-1);
+}
+.wheel-rec-vetoes {
+  color: var(--red);
+  margin-top: 2px;
+}
+.wheel-rec-reasons li, .wheel-rec-vetoes li {
+  line-height: 1.5;
+}
 .wheel-watchlist {
   display: flex;
   flex-direction: column;

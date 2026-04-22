@@ -516,6 +516,10 @@ func (s *PGStore) ensureSchema() {
 		`ALTER TABLE wheel_recommendations ADD COLUMN IF NOT EXISTS volume INTEGER`,
 		`ALTER TABLE wheel_recommendations ADD COLUMN IF NOT EXISTS executable BOOLEAN DEFAULT FALSE`,
 		`ALTER TABLE wheel_recommendations ADD COLUMN IF NOT EXISTS existing_position_id TEXT`,
+		// Pre-trade verdict columns — take/wait/skip with reason bullets.
+		`ALTER TABLE wheel_recommendations ADD COLUMN IF NOT EXISTS verdict TEXT`,
+		`ALTER TABLE wheel_recommendations ADD COLUMN IF NOT EXISTS vetoes JSONB`,
+		`ALTER TABLE wheel_recommendations ADD COLUMN IF NOT EXISTS verdict_reasons JSONB`,
 	}
 	for _, stmt := range stmts {
 		if _, err := s.db.Exec(stmt); err != nil {
@@ -2844,20 +2848,24 @@ func (s *PGStore) InsertWheelRecommendations(recs []domain.WheelRecommendation) 
 		if r.Status == "" {
 			r.Status = domain.WheelRecFresh
 		}
+		vetoesJSON, _ := json.Marshal(r.Vetoes)
+		reasonsJSON, _ := json.Marshal(r.VerdictReasons)
 		if _, err := tx.Exec(`INSERT INTO wheel_recommendations
 			(id, run_id, action, symbol, underlying_price, option_type, strike,
 			 expiration, dte, delta, bid, ask, mid, premium, collateral,
 			 annualized_yield, iv_rank, score, rules_rationale, review_note,
 			 review_score, status, created_at, data_quality, spread_pct,
-			 open_interest, volume, executable, existing_position_id)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29)`,
+			 open_interest, volume, executable, existing_position_id,
+			 verdict, vetoes, verdict_reasons)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32)`,
 			r.ID, r.RunID, r.Action, r.Symbol, r.UnderlyingPrice,
 			nullStr(r.OptionType), r.Strike, nullStr(r.Expiration), r.DTE,
 			r.Delta, r.Bid, r.Ask, r.Mid, r.Premium, r.Collateral,
 			r.AnnualizedYield, r.IVRank, r.Score, nullStr(r.RulesRationale),
 			nullStr(r.ReviewNote), r.ReviewScore, r.Status, r.CreatedAt,
 			nullStr(r.DataQuality), r.SpreadPct, nullInt(r.OpenInterest),
-			nullInt(r.Volume), r.Executable, nullStr(r.ExistingPositionID)); err != nil {
+			nullInt(r.Volume), r.Executable, nullStr(r.ExistingPositionID),
+			nullStr(r.Verdict), string(vetoesJSON), string(reasonsJSON)); err != nil {
 			return fmt.Errorf("insert rec %s: %w", r.ID, err)
 		}
 	}
@@ -2874,7 +2882,8 @@ func (s *PGStore) ListWheelRecommendations(status string, limit int) []domain.Wh
 		COALESCE(review_score,0), status, created_at, taken_at, dismissed_at,
 		COALESCE(data_quality,''), COALESCE(spread_pct,0),
 		COALESCE(open_interest,0), COALESCE(volume,0),
-		COALESCE(executable,FALSE), COALESCE(existing_position_id,'')
+		COALESCE(executable,FALSE), COALESCE(existing_position_id,''),
+		COALESCE(verdict,''), COALESCE(vetoes::text,''), COALESCE(verdict_reasons::text,'')
 		FROM wheel_recommendations WHERE 1=1`
 	var args []interface{}
 	idx := 0
@@ -2899,6 +2908,7 @@ func (s *PGStore) ListWheelRecommendations(status string, limit int) []domain.Wh
 	for rows.Next() {
 		var r domain.WheelRecommendation
 		var taken, dismissed sql.NullTime
+		var vetoesJSON, reasonsJSON string
 		if err := rows.Scan(&r.ID, &r.RunID, &r.Action, &r.Symbol, &r.UnderlyingPrice,
 			&r.OptionType, &r.Strike, &r.Expiration, &r.DTE, &r.Delta,
 			&r.Bid, &r.Ask, &r.Mid, &r.Premium, &r.Collateral,
@@ -2906,9 +2916,16 @@ func (s *PGStore) ListWheelRecommendations(status string, limit int) []domain.Wh
 			&r.ReviewNote, &r.ReviewScore, &r.Status, &r.CreatedAt,
 			&taken, &dismissed,
 			&r.DataQuality, &r.SpreadPct, &r.OpenInterest, &r.Volume,
-			&r.Executable, &r.ExistingPositionID); err != nil {
+			&r.Executable, &r.ExistingPositionID,
+			&r.Verdict, &vetoesJSON, &reasonsJSON); err != nil {
 			s.logger.Error("scan wheel rec", "error", err)
 			continue
+		}
+		if vetoesJSON != "" {
+			_ = json.Unmarshal([]byte(vetoesJSON), &r.Vetoes)
+		}
+		if reasonsJSON != "" {
+			_ = json.Unmarshal([]byte(reasonsJSON), &r.VerdictReasons)
 		}
 		if taken.Valid {
 			t := taken.Time

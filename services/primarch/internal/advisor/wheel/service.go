@@ -2,6 +2,7 @@ package wheel
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -30,7 +31,22 @@ type Service struct {
 	running      bool
 	triggerCh    chan struct{}
 	accountCache []string
+	// verdictCache memoizes Claude reviews keyed by
+	// symbol|action|strike|expiration. Scans repeat every hour during market
+	// hours — without caching we'd spend tokens re-reviewing the same contracts.
+	verdictCache map[string]cachedVerdict
 }
+
+type cachedVerdict struct {
+	verdict string
+	reasons []string
+	expires time.Time
+}
+
+// verdictCacheTTL — how long a Claude review stays warm for an unchanged
+// candidate. Short enough to re-evaluate across trading sessions, long enough
+// to absorb repeated intra-day scans.
+const verdictCacheTTL = 6 * time.Hour
 
 // NewService wires the wheel advisor. claude and firefly may be nil.
 func NewService(st store.DataStore, t *tastytrade.Client, cl *advisor.Client, ff *cfo.FireflyClient, logger *slog.Logger) *Service {
@@ -38,12 +54,13 @@ func NewService(st store.DataStore, t *tastytrade.Client, cl *advisor.Client, ff
 		return nil
 	}
 	return &Service{
-		store:     st,
-		tasty:     t,
-		claude:    cl,
-		firefly:   ff,
-		logger:    logger,
-		triggerCh: make(chan struct{}, 1),
+		store:        st,
+		tasty:        t,
+		claude:       cl,
+		firefly:      ff,
+		logger:       logger,
+		triggerCh:    make(chan struct{}, 1),
+		verdictCache: make(map[string]cachedVerdict),
 	}
 }
 
@@ -199,61 +216,168 @@ func (s *Service) RunOnce(ctx context.Context) {
 	s.syncBalanceToFirefly(scanCtx)
 }
 
-// reviewWithClaude sends the top 5 candidates to Claude and fills in
-// ReviewNote + a heuristic ReviewScore by parsing the reply. Best-effort —
-// failures log and the rules rationale still ships.
+// reviewWithClaude sends un-vetoed candidates to Claude for a structured
+// verdict + reasons. Vetoed candidates are skipped — their deterministic
+// verdict already says "skip" and we don't want to burn tokens confirming it.
+// Results are merged back onto the candidate (Verdict, VerdictReasons,
+// ReviewNote) and cached by (symbol, action, strike, expiration) for the TTL.
 func (s *Service) reviewWithClaude(ctx context.Context, cands []Candidate, cfg *domain.WheelConfig) {
 	if len(cands) == 0 {
 		return
 	}
-	top := cands
-	if len(top) > 5 {
-		top = top[:5]
+	// Split candidates into reviewable (no vetoes, no managed-position actions)
+	// and skipped — we'll pull cached verdicts for the skipped group too so
+	// close/roll recs still carry a reviewer-annotated reason if one exists.
+	reviewable := make([]int, 0, len(cands))
+	for i := range cands {
+		if len(cands[i].Vetoes) > 0 {
+			continue // deterministic skip — keep engine verdict
+		}
+		if cands[i].Action == domain.WheelActionCSPClose || cands[i].Action == domain.WheelActionCCClose ||
+			cands[i].Action == domain.WheelActionCSPRoll || cands[i].Action == domain.WheelActionCCRoll {
+			continue // management actions don't need Claude's opinion
+		}
+		reviewable = append(reviewable, i)
 	}
+
+	// Serve from cache where possible. We only call Claude for cache misses.
+	now := time.Now()
+	var uncached []int
+	for _, i := range reviewable {
+		key := verdictKey(&cands[i])
+		s.mu.Lock()
+		cv, ok := s.verdictCache[key]
+		s.mu.Unlock()
+		if ok && now.Before(cv.expires) {
+			cands[i].Verdict = cv.verdict
+			cands[i].VerdictReasons = append([]string(nil), cv.reasons...)
+			continue
+		}
+		uncached = append(uncached, i)
+	}
+	if len(uncached) == 0 {
+		return
+	}
+	// Cap per-scan review batch so token usage stays bounded even with a wide
+	// watchlist. Remaining candidates keep their seeded (rules-based) verdict.
+	const maxReview = 15
+	if len(uncached) > maxReview {
+		uncached = uncached[:maxReview]
+	}
+
+	// Build a prompt asking for strict JSON so parsing is unambiguous.
 	var b strings.Builder
-	b.WriteString("You are the wheel-strategy tactical reviewer. The rules engine produced these candidates for today. For each, respond with a single line: 'GOOD: <one-sentence commentary>' or 'SKIP: <why>'. Consider earnings (skip if <7 days to earnings), unusual IV rank, or obvious reasons to pass. Be terse.\n\nCandidates:\n")
-	for i, c := range top {
-		fmt.Fprintf(&b, "%d. %s %s $%.2f strike, %d DTE, IV rank %.0f, annualized yield %.1f%%\n",
-			i+1, c.Symbol, actionLabel(c.Action), c.Strike, c.DTE, c.IVRank*100, c.AnnualizedYield*100)
+	b.WriteString("You are an options-wheel tactical reviewer. For EACH numbered candidate below, decide whether to TAKE, WAIT, or SKIP the trade right now and list 2–3 concrete reasons. Reasons should be short bullet-style phrases (e.g. \"IV rank elevated at 78\", \"earnings in 3 days — wait\", \"delta cleanly matches 0.20 target\"). Consider: earnings proximity, IV rank vs. history, delta fit, annualized yield, spread/liquidity, macro backdrop.\n\nRespond with ONLY a JSON array — no prose, no markdown fences. Each element: {\"index\": <int>, \"verdict\": \"take|wait|skip\", \"reasons\": [\"...\", \"...\"]}.\n\nCandidates:\n")
+	for _, i := range uncached {
+		c := cands[i]
+		fmt.Fprintf(&b, "%d. %s %s strike $%.2f, %d DTE (exp %s), Δ %.2f (target %.2f), yield %.1f%% annualized, IV rank %.0f, spread %.0f%%, OI %d, data %s.\n",
+			i+1, c.Symbol, actionLabel(c.Action), c.Strike, c.DTE, c.Expiration,
+			c.Delta, c.TargetDelta, c.AnnualizedYield*100, c.IVRank*100, c.SpreadPct*100, c.OpenInterest, c.DataQuality)
 	}
-	prompt := b.String()
-	reply, err := s.claude.Complete(ctx, "You are a concise, opinionated options trader. One line per candidate.",
-		[]advisor.Message{{Role: "user", Content: prompt}})
+	reply, err := s.claude.Complete(ctx,
+		"You are a concise, opinionated options trader. Output STRICT JSON only — no prose.",
+		[]advisor.Message{{Role: "user", Content: b.String()}})
 	if err != nil {
 		s.logger.Warn("claude review failed", "error", err)
 		return
 	}
-	// Parse line-by-line and attach to candidates by index (best-effort).
-	lines := strings.Split(reply.Content, "\n")
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if line == "" {
+	s.applyVerdicts(reply.Content, cands, uncached)
+}
+
+// applyVerdicts is the Service-bound method-expression wrapper around
+// parseAndApplyVerdicts that holds the cache mutex for each cache write.
+func (s *Service) applyVerdicts(reply string, cands []Candidate, uncached []int) {
+	parseAndApplyVerdicts(reply, cands, uncached, s.logger, &s.mu, s.verdictCache)
+}
+
+// verdictKey is the cache key for a candidate's Claude verdict.
+func verdictKey(c *Candidate) string {
+	return fmt.Sprintf("%s|%s|%.2f|%s", c.Symbol, c.Action, c.Strike, c.Expiration)
+}
+
+// parseAndApplyVerdicts extracts a JSON verdict array from a Claude reply and
+// merges each entry into the matching candidate. Tolerates minor wrapping
+// (surrounding prose, ```json fences) by extracting the first bracketed array.
+func parseAndApplyVerdicts(reply string, cands []Candidate, uncached []int, logger interface {
+	Warn(msg string, args ...any)
+}, mu *sync.Mutex, cache map[string]cachedVerdict) {
+	jsonBlob := extractJSONArray(reply)
+	if jsonBlob == "" {
+		if logger != nil {
+			logger.Warn("claude review: no JSON array in reply", "preview", truncateReply(reply, 200))
+		}
+		return
+	}
+	type vitem struct {
+		Index   int      `json:"index"`
+		Verdict string   `json:"verdict"`
+		Reasons []string `json:"reasons"`
+	}
+	var items []vitem
+	if err := json.Unmarshal([]byte(jsonBlob), &items); err != nil {
+		if logger != nil {
+			logger.Warn("claude review: JSON decode failed", "error", err, "blob", truncateReply(jsonBlob, 200))
+		}
+		return
+	}
+	expires := time.Now().Add(verdictCacheTTL)
+	for _, it := range items {
+		// Map the 1-based index in the reply back to the original candidate
+		// slot. We only sent candidates at `uncached` indices to Claude.
+		slot := it.Index - 1
+		if slot < 0 || slot >= len(cands) {
 			continue
 		}
-		// Lines like "1. GOOD: ..." or "1) SKIP: ..."
-		idx := parseLeadingIndex(line)
-		if idx < 1 || idx > len(top) {
-			continue
-		}
-		score := 0.0
-		if strings.Contains(strings.ToUpper(line), "GOOD") {
-			score = 0.75
-		} else if strings.Contains(strings.ToUpper(line), "SKIP") {
-			score = 0.15
-		}
-		// Pass by index into the original slice.
-		for i := range cands {
-			if i == idx-1 {
-				cands[i].Rationale = cands[i].Rationale + "\n\nReviewer: " + line
-				// Squeeze score into Score field too via a small bump.
-				if score > 0 {
-					cands[i].Score = cands[i].Score * (0.5 + score)
-				}
+		valid := false
+		for _, u := range uncached {
+			if u == slot {
+				valid = true
 				break
 			}
 		}
+		if !valid {
+			continue
+		}
+		v := strings.ToLower(strings.TrimSpace(it.Verdict))
+		switch v {
+		case domain.WheelVerdictTake, domain.WheelVerdictWait, domain.WheelVerdictSkip:
+			// ok
+		default:
+			continue
+		}
+		cands[slot].Verdict = v
+		cands[slot].VerdictReasons = it.Reasons
+		// Append a short reviewer note to the rationale for audit trails.
+		if len(it.Reasons) > 0 {
+			cands[slot].Rationale = cands[slot].Rationale + "\n\nReviewer: " +
+				strings.ToUpper(v) + " — " + strings.Join(it.Reasons, "; ")
+		}
+		mu.Lock()
+		cache[verdictKey(&cands[slot])] = cachedVerdict{
+			verdict: v,
+			reasons: append([]string(nil), it.Reasons...),
+			expires: expires,
+		}
+		mu.Unlock()
 	}
-	// Re-sort after review-score adjustments.
+}
+
+// extractJSONArray grabs the first "[...]" block from text, so we can tolerate
+// ```json fences, explanatory prose, or trailing commentary.
+func extractJSONArray(s string) string {
+	start := strings.Index(s, "[")
+	end := strings.LastIndex(s, "]")
+	if start < 0 || end <= start {
+		return ""
+	}
+	return s[start : end+1]
+}
+
+func truncateReply(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "…"
 }
 
 // syncPositionsToHoldings pulls tastytrade equity positions and upserts them
@@ -413,23 +537,6 @@ func actionLabel(a string) string {
 		return "roll CC"
 	}
 	return a
-}
-
-func parseLeadingIndex(line string) int {
-	for i, r := range line {
-		if r < '0' || r > '9' {
-			if i == 0 {
-				return 0
-			}
-			var n int
-			fmt.Sscanf(line[:i], "%d", &n)
-			return n
-		}
-		if i > 2 {
-			break
-		}
-	}
-	return 0
 }
 
 // inMarketHours returns true during U.S. equity RTH (loose Mon-Fri 13:30-20:00

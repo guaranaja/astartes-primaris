@@ -56,6 +56,15 @@ const (
 	WheelDataQualityEstimated = "estimated"
 )
 
+// Wheel verdict — a pre-trade call on whether to act on a candidate right now.
+// "take" means conditions are favorable; "wait" means marginal (data/liquidity
+// concerns); "skip" means at least one hard reason to pass.
+const (
+	WheelVerdictTake = "take"
+	WheelVerdictWait = "wait"
+	WheelVerdictSkip = "skip"
+)
+
 // WheelRecommendation is a single candidate trade. A Run groups a scan's recs.
 type WheelRecommendation struct {
 	ID               string     `json:"id"`
@@ -87,6 +96,15 @@ type WheelRecommendation struct {
 	Volume            int     `json:"volume,omitempty"`
 	Executable        bool    `json:"executable"`                    // all hard gates pass
 	ExistingPositionID string `json:"existing_position_id,omitempty"` // for close/roll recs
+
+	// Pre-trade decision — populated by the advisor. Verdict is one of
+	// take/wait/skip (see WheelVerdict* constants). Vetoes are deterministic
+	// skip signals from the rules engine (e.g. "low open interest (3)"). Reasons
+	// are the reviewer's "why take" / "why skip" bullets, merged from rules and
+	// optional Claude review. UIs should lead with Verdict + Reasons.
+	Verdict        string   `json:"verdict,omitempty"`
+	Vetoes         []string `json:"vetoes,omitempty"`
+	VerdictReasons []string `json:"verdict_reasons,omitempty"`
 
 	Status           string     `json:"status"`
 	CreatedAt        time.Time  `json:"created_at"`
