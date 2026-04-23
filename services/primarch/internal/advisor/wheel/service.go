@@ -35,6 +35,10 @@ type Service struct {
 	// symbol|action|strike|expiration. Scans repeat every hour during market
 	// hours — without caching we'd spend tokens re-reviewing the same contracts.
 	verdictCache map[string]cachedVerdict
+	// lastPrimeRun tracks the date (YYYY-MM-DD in ET) of the most recent prime
+	// scan so we don't re-fire if the 1-minute detection window overlaps a
+	// restart or multiple checks.
+	lastPrimeRun string
 }
 
 type cachedVerdict struct {
@@ -109,6 +113,11 @@ func (s *Service) runLoop(ctx context.Context) {
 	defer t.Stop()
 	expire := time.NewTicker(6 * time.Hour)
 	defer expire.Stop()
+	// Poll every minute for the weekly prime-scan window. A ticker is plenty
+	// cheap (one check, no work outside the window), and it self-heals across
+	// restarts since it resumes from whatever the wall clock says.
+	prime := time.NewTicker(1 * time.Minute)
+	defer prime.Stop()
 	for {
 		select {
 		case <-ctx.Done():
@@ -122,10 +131,32 @@ func (s *Service) runLoop(ctx context.Context) {
 			if n, err := s.store.ExpireOldWheelRecommendations(time.Now().Add(-48 * time.Hour)); err == nil && n > 0 {
 				s.logger.Info("wheel recs expired", "count", n)
 			}
+		case <-prime.C:
+			s.maybeRunPrime(ctx, time.Now())
 		case <-s.triggerCh:
 			s.RunOnce(ctx)
 		}
 	}
+}
+
+// maybeRunPrime fires the weekly Friday-11:00-ET canonical scan exactly once
+// per Friday. It writes a distinct log prefix so downstream alerting (e.g. a
+// future Discord notifier) can match on "wheel PRIME scan".
+func (s *Service) maybeRunPrime(ctx context.Context, now time.Time) {
+	if !isPrimeScanTime(now) {
+		return
+	}
+	today := now.In(primeScanTZ()).Format("2006-01-02")
+	s.mu.Lock()
+	if s.lastPrimeRun == today {
+		s.mu.Unlock()
+		return
+	}
+	s.lastPrimeRun = today
+	s.mu.Unlock()
+	s.logger.Info("wheel PRIME scan starting", "local_time", now.In(primeScanTZ()).Format("Mon 15:04 MST"))
+	s.RunOnce(ctx)
+	s.logger.Info("wheel PRIME scan complete", "local_time", now.In(primeScanTZ()).Format("Mon 15:04 MST"))
 }
 
 // RunOnce does a full scan: gather inputs, generate candidates, optional
@@ -539,8 +570,11 @@ func actionLabel(a string) string {
 	return a
 }
 
-// inMarketHours returns true during U.S. equity RTH (loose Mon-Fri 13:30-20:00
-// UTC; no holiday calendar). Good enough for an hourly scan trigger.
+// inMarketHours returns true during a "reliable-quote" window — roughly
+// 10:00-16:00 ET (14:00-20:00 UTC during EDT). Deliberately skips the first
+// 30 minutes after open because NBBO is wide and erratic while the opening
+// auction settles, which pollutes spreads / veto signals in the rules engine.
+// Loose Mon-Fri; no holiday calendar, no DST correction.
 func inMarketHours(t time.Time) bool {
 	t = t.UTC()
 	wd := t.Weekday()
@@ -548,6 +582,27 @@ func inMarketHours(t time.Time) bool {
 		return false
 	}
 	mins := t.Hour()*60 + t.Minute()
-	// 13:30 UTC (9:30 ET) to 20:00 UTC (16:00 ET)
-	return mins >= 13*60+30 && mins <= 20*60
+	// 14:00 UTC (~10:00 ET) to 20:00 UTC (~16:00 ET)
+	return mins >= 14*60 && mins <= 20*60
+}
+
+// primeScanTZ is the wall-clock zone used for the weekly prime scan. Falls
+// back to UTC if the tzdata isn't available on the container.
+func primeScanTZ() *time.Location {
+	if loc, err := time.LoadLocation("America/New_York"); err == nil {
+		return loc
+	}
+	return time.UTC
+}
+
+// isPrimeScanTime reports whether t falls inside the weekly prime-scan
+// firing window: Friday 11:00–11:04 ET. A 5-minute slack lets the 1-minute
+// scheduler ticker hit the window even if startup happened mid-minute.
+// Callers MUST dedup via lastPrimeRun so the window doesn't fire repeatedly.
+func isPrimeScanTime(t time.Time) bool {
+	local := t.In(primeScanTZ())
+	if local.Weekday() != time.Friday {
+		return false
+	}
+	return local.Hour() == 11 && local.Minute() < 5
 }
