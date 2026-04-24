@@ -4040,13 +4040,61 @@ App.renderWheelAdvisorStatus = function() {
   const el = document.getElementById('wheelAdvisorStatus');
   if (!el) return;
   const s = App.state.wheelAdvisorStatus || {};
+  const session = App.marketSession();
+  const sessionPill = `<span class="wheel-session ${session.cls}" title="${session.title}">${session.label}</span>`;
   if (!s.available) {
-    el.textContent = 'Offline — set TASTYTRADE_CLIENT_ID / REFRESH_TOKEN';
-    el.style.color = 'var(--red)';
+    el.innerHTML = sessionPill + ' <span style="color:var(--red)">Offline — set TASTYTRADE_CLIENT_ID / REFRESH_TOKEN</span>';
   } else {
-    el.textContent = s.claude_review ? 'tastytrade · Claude review on' : 'tastytrade';
-    el.style.color = 'var(--text-3)';
+    const src = s.claude_review ? 'tastytrade · Claude review on' : 'tastytrade';
+    el.innerHTML = sessionPill + ` <span style="color:var(--text-3)">${src}</span>`;
   }
+};
+
+// marketSession returns a label + CSS class + tooltip for the current U.S.
+// equity session in ET. Pure client-side — no server call needed.
+App.marketSession = function() {
+  const now = new Date();
+  // Format in ET so we don't depend on the user's locale.
+  const fmt = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York',
+    weekday: 'short', hour: 'numeric', minute: 'numeric', hour12: false
+  });
+  const parts = Object.fromEntries(fmt.formatToParts(now).map(p => [p.type, p.value]));
+  const wd = parts.weekday; // "Mon".."Sun"
+  const h = parseInt(parts.hour === '24' ? '0' : parts.hour, 10);
+  const m = parseInt(parts.minute, 10);
+  const mins = h * 60 + m;
+  if (wd === 'Sat' || wd === 'Sun') {
+    return { label: 'CLOSED', cls: 'closed', title: 'Weekend — quotes unavailable' };
+  }
+  // RTH 9:30-16:00 ET
+  if (mins >= 9 * 60 + 30 && mins < 16 * 60) {
+    return { label: 'MARKET OPEN', cls: 'open', title: 'Regular trading hours — quotes live' };
+  }
+  // Extended hours 4:00-9:30 and 16:00-20:00
+  if ((mins >= 4 * 60 && mins < 9 * 60 + 30) || (mins >= 16 * 60 && mins < 20 * 60)) {
+    return { label: 'AFTER HOURS', cls: 'ah', title: 'Extended hours — thinner liquidity, use quotes with caution' };
+  }
+  return { label: 'CLOSED', cls: 'closed', title: 'Overnight — quotes stale until open' };
+};
+
+// formatQuoteAge returns a short relative-time string for an ISO timestamp
+// plus a CSS class indicating freshness band. Green <30s, amber <5min,
+// red otherwise. Used on each wheel recommendation card.
+App.formatQuoteAge = function(iso) {
+  if (!iso) return null;
+  const t = Date.parse(iso);
+  if (!t || isNaN(t)) return null;
+  const ageSec = Math.max(0, Math.round((Date.now() - t) / 1000));
+  let label, cls;
+  if (ageSec < 60) { label = `${ageSec}s`; }
+  else if (ageSec < 3600) { label = `${Math.round(ageSec / 60)}m`; }
+  else if (ageSec < 86400) { label = `${Math.round(ageSec / 3600)}h`; }
+  else { label = `${Math.round(ageSec / 86400)}d`; }
+  if (ageSec < 30) cls = 'fresh';
+  else if (ageSec < 300) cls = 'stale';
+  else cls = 'cold';
+  return { label, cls, ageSec };
 };
 
 App.renderWheelRecommendations = function() {
@@ -4112,6 +4160,11 @@ App.renderWheelRecommendations = function() {
       const execBadge = r.executable
         ? '<span class="wheel-exec ok" title="Passes all gates — ready to execute">✓ READY</span>'
         : '<span class="wheel-exec blocked" title="Manual review needed — see rationale">⚠ REVIEW</span>';
+      // Quote freshness — age since tastytrade's reported update time.
+      const age = App.formatQuoteAge(r.quote_as_of);
+      const ageBadge = age
+        ? `<span class="wheel-age ${age.cls}" title="Quote last updated ${age.ageSec}s ago">${age.label}</span>`
+        : '';
       const quoteLine = r.bid && r.ask
         ? `$${fmt(r.mid)} mid ($${fmt(r.bid)} / $${fmt(r.ask)})`
         : (r.mid ? `$${fmt(r.mid)} est` : '');
@@ -4153,6 +4206,7 @@ App.renderWheelRecommendations = function() {
               ${spreadTag ? `<span class="wheel-rec-tag">${spreadTag}</span>` : ''}
               ${oiTag ? `<span class="wheel-rec-tag">${oiTag}</span>` : ''}
               ${qualityBadge}
+              ${ageBadge}
               ${execBadge}
             </div>
             <div class="wheel-rec-actions">

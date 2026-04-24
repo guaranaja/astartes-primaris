@@ -106,6 +106,11 @@ type WheelRecommendation struct {
 	Vetoes         []string `json:"vetoes,omitempty"`
 	VerdictReasons []string `json:"verdict_reasons,omitempty"`
 
+	// QuoteAsOf is tastytrade's reported last-update time for the underlying
+	// quote used to price this candidate. UIs render an age badge off this;
+	// a zero time means freshness is unknown.
+	QuoteAsOf time.Time `json:"quote_as_of,omitempty"`
+
 	Status           string     `json:"status"`
 	CreatedAt        time.Time  `json:"created_at"`
 	TakenAt          *time.Time `json:"taken_at,omitempty"`

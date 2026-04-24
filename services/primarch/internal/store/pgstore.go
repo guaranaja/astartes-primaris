@@ -520,6 +520,7 @@ func (s *PGStore) ensureSchema() {
 		`ALTER TABLE wheel_recommendations ADD COLUMN IF NOT EXISTS verdict TEXT`,
 		`ALTER TABLE wheel_recommendations ADD COLUMN IF NOT EXISTS vetoes JSONB`,
 		`ALTER TABLE wheel_recommendations ADD COLUMN IF NOT EXISTS verdict_reasons JSONB`,
+		`ALTER TABLE wheel_recommendations ADD COLUMN IF NOT EXISTS quote_as_of TIMESTAMPTZ`,
 	}
 	for _, stmt := range stmts {
 		if _, err := s.db.Exec(stmt); err != nil {
@@ -2850,14 +2851,18 @@ func (s *PGStore) InsertWheelRecommendations(recs []domain.WheelRecommendation) 
 		}
 		vetoesJSON, _ := json.Marshal(r.Vetoes)
 		reasonsJSON, _ := json.Marshal(r.VerdictReasons)
+		var quoteAsOf interface{}
+		if !r.QuoteAsOf.IsZero() {
+			quoteAsOf = r.QuoteAsOf
+		}
 		if _, err := tx.Exec(`INSERT INTO wheel_recommendations
 			(id, run_id, action, symbol, underlying_price, option_type, strike,
 			 expiration, dte, delta, bid, ask, mid, premium, collateral,
 			 annualized_yield, iv_rank, score, rules_rationale, review_note,
 			 review_score, status, created_at, data_quality, spread_pct,
 			 open_interest, volume, executable, existing_position_id,
-			 verdict, vetoes, verdict_reasons)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32)`,
+			 verdict, vetoes, verdict_reasons, quote_as_of)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33)`,
 			r.ID, r.RunID, r.Action, r.Symbol, r.UnderlyingPrice,
 			nullStr(r.OptionType), r.Strike, nullStr(r.Expiration), r.DTE,
 			r.Delta, r.Bid, r.Ask, r.Mid, r.Premium, r.Collateral,
@@ -2865,7 +2870,8 @@ func (s *PGStore) InsertWheelRecommendations(recs []domain.WheelRecommendation) 
 			nullStr(r.ReviewNote), r.ReviewScore, r.Status, r.CreatedAt,
 			nullStr(r.DataQuality), r.SpreadPct, nullInt(r.OpenInterest),
 			nullInt(r.Volume), r.Executable, nullStr(r.ExistingPositionID),
-			nullStr(r.Verdict), string(vetoesJSON), string(reasonsJSON)); err != nil {
+			nullStr(r.Verdict), string(vetoesJSON), string(reasonsJSON),
+			quoteAsOf); err != nil {
 			return fmt.Errorf("insert rec %s: %w", r.ID, err)
 		}
 	}
@@ -2883,7 +2889,8 @@ func (s *PGStore) ListWheelRecommendations(status string, limit int) []domain.Wh
 		COALESCE(data_quality,''), COALESCE(spread_pct,0),
 		COALESCE(open_interest,0), COALESCE(volume,0),
 		COALESCE(executable,FALSE), COALESCE(existing_position_id,''),
-		COALESCE(verdict,''), COALESCE(vetoes::text,''), COALESCE(verdict_reasons::text,'')
+		COALESCE(verdict,''), COALESCE(vetoes::text,''), COALESCE(verdict_reasons::text,''),
+		quote_as_of
 		FROM wheel_recommendations WHERE 1=1`
 	var args []interface{}
 	idx := 0
@@ -2907,7 +2914,7 @@ func (s *PGStore) ListWheelRecommendations(status string, limit int) []domain.Wh
 	var out []domain.WheelRecommendation
 	for rows.Next() {
 		var r domain.WheelRecommendation
-		var taken, dismissed sql.NullTime
+		var taken, dismissed, quoteAsOf sql.NullTime
 		var vetoesJSON, reasonsJSON string
 		if err := rows.Scan(&r.ID, &r.RunID, &r.Action, &r.Symbol, &r.UnderlyingPrice,
 			&r.OptionType, &r.Strike, &r.Expiration, &r.DTE, &r.Delta,
@@ -2917,7 +2924,8 @@ func (s *PGStore) ListWheelRecommendations(status string, limit int) []domain.Wh
 			&taken, &dismissed,
 			&r.DataQuality, &r.SpreadPct, &r.OpenInterest, &r.Volume,
 			&r.Executable, &r.ExistingPositionID,
-			&r.Verdict, &vetoesJSON, &reasonsJSON); err != nil {
+			&r.Verdict, &vetoesJSON, &reasonsJSON,
+			&quoteAsOf); err != nil {
 			s.logger.Error("scan wheel rec", "error", err)
 			continue
 		}
@@ -2926,6 +2934,9 @@ func (s *PGStore) ListWheelRecommendations(status string, limit int) []domain.Wh
 		}
 		if reasonsJSON != "" {
 			_ = json.Unmarshal([]byte(reasonsJSON), &r.VerdictReasons)
+		}
+		if quoteAsOf.Valid {
+			r.QuoteAsOf = quoteAsOf.Time
 		}
 		if taken.Valid {
 			t := taken.Time

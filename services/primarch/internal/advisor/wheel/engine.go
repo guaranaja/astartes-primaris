@@ -53,6 +53,10 @@ type Candidate struct {
 	VerdictReasons []string
 	// TargetDelta is carried along so the rationale + reasons can reference it.
 	TargetDelta float64
+	// QuoteAsOf is when tastytrade says this quote was last updated. The UI
+	// uses it to render a live/stale age badge so you never act on a quote
+	// without knowing how fresh it is.
+	QuoteAsOf time.Time
 }
 
 // Inputs for the rules engine.
@@ -269,6 +273,7 @@ func evaluateExistingPositions(in Inputs, spots map[string]float64) (map[string]
 			closeCand.VerdictReasons = []string{
 				fmt.Sprintf("%.0f%% of max profit captured — buy back cheap", profitPct*100),
 			}
+			closeCand.QuoteAsOf = time.Now()
 			recs = append(recs, closeCand)
 			continue
 		}
@@ -298,6 +303,7 @@ func evaluateExistingPositions(in Inputs, spots map[string]float64) (map[string]
 			rollCand.VerdictReasons = []string{
 				fmt.Sprintf("%d DTE and ITM — manual roll selection required", dte),
 			}
+			rollCand.QuoteAsOf = time.Now()
 			recs = append(recs, rollCand)
 			continue
 		}
@@ -513,6 +519,7 @@ func bestOption(ctx context.Context, in Inputs, symbol string, spot float64, sid
 			Executable:      executable,
 			Score:           score,
 			TargetDelta:     targetDelta,
+			QuoteAsOf:       parseTastyQuoteTime(q.UpdatedAt),
 		}
 		cand.Rationale = buildRationale(cand, targetDelta, costBasis)
 		cand.Vetoes = computeVetoes(cand)
@@ -522,6 +529,22 @@ func bestOption(ctx context.Context, in Inputs, symbol string, spot float64, sid
 		}
 	}
 	return best
+}
+
+// parseTastyQuoteTime parses tastytrade's "updated-at" string (ISO 8601,
+// typically with nanosecond precision) into a Time. Falls back to now() if
+// the field is empty or malformed — the caller prefers "fresh enough" over
+// a zero time that the UI would render as "stale forever."
+func parseTastyQuoteTime(s string) time.Time {
+	if s == "" {
+		return time.Now()
+	}
+	for _, layout := range []string{time.RFC3339Nano, time.RFC3339, "2006-01-02T15:04:05.000Z"} {
+		if t, err := time.Parse(layout, s); err == nil {
+			return t
+		}
+	}
+	return time.Now()
 }
 
 // Veto thresholds. These drive the deterministic "skip" reasons — hard
@@ -841,6 +864,7 @@ func ToRecommendations(runID string, cands []Candidate) []domain.WheelRecommenda
 			Verdict:            c.Verdict,
 			Vetoes:             c.Vetoes,
 			VerdictReasons:     c.VerdictReasons,
+			QuoteAsOf:          c.QuoteAsOf,
 			Status:             domain.WheelRecFresh,
 			CreatedAt:          now,
 		})
