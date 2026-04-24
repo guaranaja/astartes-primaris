@@ -2815,6 +2815,81 @@ select.input option { background: var(--bg-1); }
   background: rgba(239, 68, 68, 0.18);
   color: var(--red);
 }
+.wheel-paper-book {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.wheel-paper-section h4 {
+  font-size: 11px;
+  color: var(--text-2);
+  margin: 0 0 6px 0;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+.wheel-paper-row {
+  display: grid;
+  grid-template-columns: 48px 56px 1fr 48px 110px 110px 100px 48px 120px 70px;
+  gap: 10px;
+  align-items: center;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 12px;
+  margin-bottom: 4px;
+  background: rgba(255, 255, 255, 0.012);
+}
+.wheel-paper-row.open {
+  border-left: 3px solid var(--accent);
+}
+.wheel-paper-row.closed {
+  opacity: 0.75;
+}
+.wheel-paper-symbol {
+  font-weight: 600;
+  letter-spacing: 0.05em;
+}
+.wheel-paper-leg {
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+.wheel-paper-contracts {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-3);
+}
+.wheel-paper-entry, .wheel-paper-mark {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-2);
+}
+.wheel-paper-pnl {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  text-align: right;
+}
+.wheel-paper-dates {
+  font-size: 10px;
+  color: var(--text-3);
+}
+.wheel-paper-accuracy {
+  padding: 6px 10px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px dashed var(--border);
+  border-radius: 4px;
+  font-size: 11px;
+  color: var(--text-2);
+  margin-bottom: 8px;
+}
+.btn-paper {
+  background: rgba(167, 139, 250, 0.15);
+  color: var(--accent);
+}
+.btn-paper:hover {
+  background: rgba(167, 139, 250, 0.25);
+}
 .wheel-watchlist {
   display: flex;
   flex-direction: column;

@@ -47,6 +47,7 @@ type Store struct {
 	wheelConfig         *domain.WheelConfig
 	wheelWatchlist      map[string]*domain.WheelWatchlistEntry
 	wheelRecs           []domain.WheelRecommendation
+	wheelPaper          []domain.WheelPaperPosition
 }
 
 // New creates a new empty store.
@@ -1135,6 +1136,108 @@ func (s *Store) ExpireOldWheelRecommendations(olderThan time.Time) (int, error) 
 			s.wheelRecs[i].Status = domain.WheelRecExpired
 			n++
 		}
+	}
+	return n, nil
+}
+
+// Paper trading — in-memory fallback. Production runs against PGStore; this
+// is only reached when Primarch boots without a database (dev mode).
+
+func (s *Store) InsertWheelPaperPosition(p *domain.WheelPaperPosition) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if p.ID == "" {
+		p.ID = fmt.Sprintf("paper-%d", time.Now().UnixNano())
+	}
+	if p.CreatedAt.IsZero() {
+		p.CreatedAt = time.Now()
+	}
+	if p.EntryTime.IsZero() {
+		p.EntryTime = p.CreatedAt
+	}
+	if p.Status == "" {
+		p.Status = domain.WheelPaperStatusOpen
+	}
+	if p.Contracts <= 0 {
+		p.Contracts = 1
+	}
+	p.CurrentMark = p.EntryPremium
+	p.LastMarkAt = p.EntryTime
+	s.wheelPaper = append(s.wheelPaper, *p)
+	return nil
+}
+
+func (s *Store) ListWheelPaperPositions(status string) []domain.WheelPaperPosition {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]domain.WheelPaperPosition, 0, len(s.wheelPaper))
+	for _, p := range s.wheelPaper {
+		if status != "" && p.Status != status {
+			continue
+		}
+		if p.Status == domain.WheelPaperStatusOpen {
+			p.UnrealizedPnL = (p.EntryPremium - p.CurrentMark) * 100 * float64(p.Contracts)
+		}
+		out = append(out, p)
+	}
+	return out
+}
+
+func (s *Store) UpdateWheelPaperMark(id string, mark float64, at time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.wheelPaper {
+		if s.wheelPaper[i].ID == id && s.wheelPaper[i].Status == domain.WheelPaperStatusOpen {
+			s.wheelPaper[i].CurrentMark = mark
+			s.wheelPaper[i].LastMarkAt = at
+			return nil
+		}
+	}
+	return nil
+}
+
+func (s *Store) CloseWheelPaperPosition(id string, exitMark float64, note string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.wheelPaper {
+		p := &s.wheelPaper[i]
+		if p.ID != id {
+			continue
+		}
+		if p.Status != domain.WheelPaperStatusOpen {
+			return fmt.Errorf("paper pos %s already %s", id, p.Status)
+		}
+		p.RealizedPnL = (p.EntryPremium - exitMark) * 100 * float64(p.Contracts)
+		p.CurrentMark = exitMark
+		p.Status = domain.WheelPaperStatusClosed
+		now := time.Now()
+		p.ClosedAt = &now
+		if note != "" {
+			p.Notes = note
+		}
+		return nil
+	}
+	return fmt.Errorf("paper pos %s not found", id)
+}
+
+func (s *Store) ExpireWheelPaperPositions(today time.Time) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n := 0
+	for i := range s.wheelPaper {
+		p := &s.wheelPaper[i]
+		if p.Status != domain.WheelPaperStatusOpen {
+			continue
+		}
+		exp, err := time.Parse("2006-01-02", p.Expiration)
+		if err != nil || !exp.Before(today) {
+			continue
+		}
+		p.RealizedPnL = (p.EntryPremium - p.CurrentMark) * 100 * float64(p.Contracts)
+		p.Status = domain.WheelPaperStatusExpired
+		now := time.Now()
+		p.ClosedAt = &now
+		n++
 	}
 	return n, nil
 }

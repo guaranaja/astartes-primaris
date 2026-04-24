@@ -521,6 +521,31 @@ func (s *PGStore) ensureSchema() {
 		`ALTER TABLE wheel_recommendations ADD COLUMN IF NOT EXISTS vetoes JSONB`,
 		`ALTER TABLE wheel_recommendations ADD COLUMN IF NOT EXISTS verdict_reasons JSONB`,
 		`ALTER TABLE wheel_recommendations ADD COLUMN IF NOT EXISTS quote_as_of TIMESTAMPTZ`,
+		`ALTER TABLE wheel_recommendations ADD COLUMN IF NOT EXISTS option_symbol TEXT`,
+		// Paper trading — simulated wheel positions opened from recs.
+		`CREATE TABLE IF NOT EXISTS wheel_paper_positions (
+			id              TEXT PRIMARY KEY,
+			source_rec_id   TEXT,
+			action          TEXT NOT NULL,
+			symbol          TEXT NOT NULL,
+			option_type     TEXT NOT NULL,
+			option_symbol   TEXT,
+			strike          DOUBLE PRECISION NOT NULL,
+			expiration      TEXT NOT NULL,
+			contracts       INTEGER NOT NULL DEFAULT 1,
+			entry_premium   DOUBLE PRECISION NOT NULL,
+			entry_time      TIMESTAMPTZ NOT NULL DEFAULT now(),
+			current_mark    DOUBLE PRECISION,
+			last_mark_at    TIMESTAMPTZ,
+			realized_pnl    DOUBLE PRECISION,
+			status          TEXT NOT NULL DEFAULT 'open',
+			notes           TEXT,
+			created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+			closed_at       TIMESTAMPTZ,
+			entry_verdict   TEXT
+		)`,
+		`CREATE INDEX IF NOT EXISTS wheel_paper_status_idx ON wheel_paper_positions(status, entry_time DESC)`,
+		`CREATE INDEX IF NOT EXISTS wheel_paper_symbol_idx ON wheel_paper_positions(symbol)`,
 	}
 	for _, stmt := range stmts {
 		if _, err := s.db.Exec(stmt); err != nil {
@@ -2861,8 +2886,8 @@ func (s *PGStore) InsertWheelRecommendations(recs []domain.WheelRecommendation) 
 			 annualized_yield, iv_rank, score, rules_rationale, review_note,
 			 review_score, status, created_at, data_quality, spread_pct,
 			 open_interest, volume, executable, existing_position_id,
-			 verdict, vetoes, verdict_reasons, quote_as_of)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33)`,
+			 verdict, vetoes, verdict_reasons, quote_as_of, option_symbol)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34)`,
 			r.ID, r.RunID, r.Action, r.Symbol, r.UnderlyingPrice,
 			nullStr(r.OptionType), r.Strike, nullStr(r.Expiration), r.DTE,
 			r.Delta, r.Bid, r.Ask, r.Mid, r.Premium, r.Collateral,
@@ -2871,7 +2896,7 @@ func (s *PGStore) InsertWheelRecommendations(recs []domain.WheelRecommendation) 
 			nullStr(r.DataQuality), r.SpreadPct, nullInt(r.OpenInterest),
 			nullInt(r.Volume), r.Executable, nullStr(r.ExistingPositionID),
 			nullStr(r.Verdict), string(vetoesJSON), string(reasonsJSON),
-			quoteAsOf); err != nil {
+			quoteAsOf, nullStr(r.OptionSymbol)); err != nil {
 			return fmt.Errorf("insert rec %s: %w", r.ID, err)
 		}
 	}
@@ -2890,7 +2915,7 @@ func (s *PGStore) ListWheelRecommendations(status string, limit int) []domain.Wh
 		COALESCE(open_interest,0), COALESCE(volume,0),
 		COALESCE(executable,FALSE), COALESCE(existing_position_id,''),
 		COALESCE(verdict,''), COALESCE(vetoes::text,''), COALESCE(verdict_reasons::text,''),
-		quote_as_of
+		quote_as_of, COALESCE(option_symbol,'')
 		FROM wheel_recommendations WHERE 1=1`
 	var args []interface{}
 	idx := 0
@@ -2925,7 +2950,7 @@ func (s *PGStore) ListWheelRecommendations(status string, limit int) []domain.Wh
 			&r.DataQuality, &r.SpreadPct, &r.OpenInterest, &r.Volume,
 			&r.Executable, &r.ExistingPositionID,
 			&r.Verdict, &vetoesJSON, &reasonsJSON,
-			&quoteAsOf); err != nil {
+			&quoteAsOf, &r.OptionSymbol); err != nil {
 			s.logger.Error("scan wheel rec", "error", err)
 			continue
 		}
@@ -2990,6 +3015,143 @@ func (s *PGStore) ExpireOldWheelRecommendations(olderThan time.Time) (int, error
 		WHERE status = 'fresh' AND created_at < $1`, olderThan)
 	if err != nil {
 		return 0, fmt.Errorf("expire old recs: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	return int(n), nil
+}
+
+// ─── Wheel paper positions ──────────────────────────────────
+
+func (s *PGStore) InsertWheelPaperPosition(p *domain.WheelPaperPosition) error {
+	if p.ID == "" {
+		p.ID = fmt.Sprintf("paper-%d", time.Now().UnixNano())
+	}
+	if p.CreatedAt.IsZero() {
+		p.CreatedAt = time.Now()
+	}
+	if p.EntryTime.IsZero() {
+		p.EntryTime = p.CreatedAt
+	}
+	if p.Status == "" {
+		p.Status = domain.WheelPaperStatusOpen
+	}
+	if p.Contracts <= 0 {
+		p.Contracts = 1
+	}
+	_, err := s.db.Exec(`INSERT INTO wheel_paper_positions
+		(id, source_rec_id, action, symbol, option_type, option_symbol, strike,
+		 expiration, contracts, entry_premium, entry_time, current_mark,
+		 last_mark_at, status, notes, created_at, entry_verdict)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`,
+		p.ID, nullStr(p.SourceRecID), p.Action, p.Symbol, p.OptionType,
+		nullStr(p.OptionSymbol), p.Strike, p.Expiration, p.Contracts,
+		p.EntryPremium, p.EntryTime, p.EntryPremium, // seed current_mark = entry_premium
+		p.EntryTime, p.Status, nullStr(p.Notes), p.CreatedAt,
+		nullStr(p.EntryVerdict))
+	if err != nil {
+		return fmt.Errorf("insert paper pos %s: %w", p.ID, err)
+	}
+	return nil
+}
+
+// ListWheelPaperPositions returns paper positions, optionally filtered by
+// status ("" = all). Ordered newest first.
+func (s *PGStore) ListWheelPaperPositions(status string) []domain.WheelPaperPosition {
+	q := `SELECT id, COALESCE(source_rec_id,''), action, symbol, option_type,
+		COALESCE(option_symbol,''), strike, expiration, contracts,
+		entry_premium, entry_time, COALESCE(current_mark,0), last_mark_at,
+		COALESCE(realized_pnl,0), status, COALESCE(notes,''), created_at,
+		closed_at, COALESCE(entry_verdict,'')
+		FROM wheel_paper_positions WHERE 1=1`
+	var args []interface{}
+	if status != "" {
+		q += " AND status = $1"
+		args = append(args, status)
+	}
+	q += " ORDER BY entry_time DESC"
+	rows, err := s.db.Query(q, args...)
+	if err != nil {
+		s.logger.Error("list paper positions", "error", err)
+		return nil
+	}
+	defer rows.Close()
+	var out []domain.WheelPaperPosition
+	for rows.Next() {
+		var p domain.WheelPaperPosition
+		var lastMark, closed sql.NullTime
+		if err := rows.Scan(&p.ID, &p.SourceRecID, &p.Action, &p.Symbol, &p.OptionType,
+			&p.OptionSymbol, &p.Strike, &p.Expiration, &p.Contracts,
+			&p.EntryPremium, &p.EntryTime, &p.CurrentMark, &lastMark,
+			&p.RealizedPnL, &p.Status, &p.Notes, &p.CreatedAt,
+			&closed, &p.EntryVerdict); err != nil {
+			s.logger.Error("scan paper pos", "error", err)
+			continue
+		}
+		if lastMark.Valid {
+			p.LastMarkAt = lastMark.Time
+		}
+		if closed.Valid {
+			t := closed.Time
+			p.ClosedAt = &t
+		}
+		// Compute unrealized on read for open positions; short option P&L =
+		// (entry_premium - current_mark) * 100 * contracts.
+		if p.Status == domain.WheelPaperStatusOpen {
+			p.UnrealizedPnL = (p.EntryPremium - p.CurrentMark) * 100 * float64(p.Contracts)
+		}
+		out = append(out, p)
+	}
+	return out
+}
+
+// UpdateWheelPaperMark rewrites current_mark + last_mark_at for one position.
+// Called during the scan tick so P&L stays fresh.
+func (s *PGStore) UpdateWheelPaperMark(id string, mark float64, at time.Time) error {
+	_, err := s.db.Exec(`UPDATE wheel_paper_positions
+		SET current_mark = $1, last_mark_at = $2
+		WHERE id = $3 AND status = 'open'`, mark, at, id)
+	if err != nil {
+		return fmt.Errorf("update paper mark %s: %w", id, err)
+	}
+	return nil
+}
+
+// CloseWheelPaperPosition realizes P&L at the given exit mark and flips
+// status to closed.
+func (s *PGStore) CloseWheelPaperPosition(id string, exitMark float64, note string) error {
+	// Fetch to compute realized P&L.
+	var entry float64
+	var contracts int
+	var status string
+	err := s.db.QueryRow(`SELECT entry_premium, contracts, status
+		FROM wheel_paper_positions WHERE id = $1`, id).Scan(&entry, &contracts, &status)
+	if err != nil {
+		return fmt.Errorf("close paper pos lookup %s: %w", id, err)
+	}
+	if status != domain.WheelPaperStatusOpen {
+		return fmt.Errorf("paper pos %s already %s", id, status)
+	}
+	realized := (entry - exitMark) * 100 * float64(contracts)
+	_, err = s.db.Exec(`UPDATE wheel_paper_positions
+		SET status = 'closed', closed_at = now(), realized_pnl = $1,
+		    current_mark = $2, notes = COALESCE(NULLIF($3,''), notes)
+		WHERE id = $4`, realized, exitMark, note, id)
+	if err != nil {
+		return fmt.Errorf("close paper pos %s: %w", id, err)
+	}
+	return nil
+}
+
+// ExpireWheelPaperPositions marks positions whose expiration has passed as
+// expired, realizing P&L at the current_mark (typically ≈ 0 for OTM strikes).
+// Called from the scan tick.
+func (s *PGStore) ExpireWheelPaperPositions(today time.Time) (int, error) {
+	res, err := s.db.Exec(`UPDATE wheel_paper_positions
+		SET status = 'expired', closed_at = now(),
+		    realized_pnl = (entry_premium - COALESCE(current_mark, 0)) * 100 * contracts
+		WHERE status = 'open' AND expiration::date < $1::date`, today)
+	if err != nil {
+		return 0, fmt.Errorf("expire paper pos: %w", err)
 	}
 	n, _ := res.RowsAffected()
 	return int(n), nil

@@ -4020,19 +4020,22 @@ function setText(id, val) {
 
 App.loadWheelAdvisor = async function() {
   try {
-    const [status, recs, watchlist, cfg] = await Promise.all([
+    const [status, recs, watchlist, cfg, paper] = await Promise.all([
       App.api('/wheel/status').catch(() => ({ available: false })),
       App.api('/wheel/recommendations?status=fresh&limit=20').catch(() => []),
       App.api('/wheel/watchlist').catch(() => []),
       App.api('/wheel/config').catch(() => null),
+      App.api('/wheel/paper').catch(() => []),
     ]);
     App.state.wheelAdvisorStatus = status;
     App.state.wheelRecs = recs || [];
     App.state.wheelAdvisorWatchlist = watchlist || [];
     App.state.wheelAdvisorConfig = cfg;
+    App.state.wheelPaper = paper || [];
     App.renderWheelAdvisorStatus();
     App.renderWheelRecommendations();
     App.renderWheelAdvisorWatchlist();
+    App.renderWheelPaperBook();
   } catch (e) { /* best-effort */ }
 };
 
@@ -4210,6 +4213,7 @@ App.renderWheelRecommendations = function() {
               ${execBadge}
             </div>
             <div class="wheel-rec-actions">
+              <button class="btn btn-sm btn-paper" title="Open a simulated position at current mid" onclick="App.paperTakeWheelRec('${esc(r.id)}')">Paper</button>
               <button class="btn btn-sm" onclick="App.takeWheelRec('${esc(r.id)}')">Taken</button>
               <button class="btn btn-sm" onclick="App.dismissWheelRec('${esc(r.id)}')">Dismiss</button>
             </div>
@@ -4278,6 +4282,114 @@ App.dismissWheelRec = async function(id) {
     await App.api(`/wheel/recommendations/${encodeURIComponent(id)}/dismiss`, { method: 'POST' });
     App.loadWheelAdvisor();
   } catch (e) { App.flash(e.message, 'error'); }
+};
+
+// paperTakeWheelRec opens a simulated position from a candidate rec. Default
+// 1 contract — enough to track outcome without skewing stats by size.
+App.paperTakeWheelRec = async function(id) {
+  try {
+    await App.api('/wheel/paper', { method: 'POST', body: { source_rec_id: id, contracts: 1 } });
+    App.flash('Paper position opened', 'info');
+    App.loadWheelAdvisor();
+  } catch (e) { App.flash(e.message, 'error'); }
+};
+
+// closePaperPosition asks for the exit mark (default 0 for expiration) and
+// realizes P&L.
+App.closePaperPosition = async function(id, suggestedMark) {
+  const input = prompt(`Close at what mid price? (default ${suggestedMark ?? 0})`, String(suggestedMark ?? 0));
+  if (input === null) return;
+  const mark = parseFloat(input);
+  if (isNaN(mark) || mark < 0) { App.flash('Invalid mark', 'error'); return; }
+  try {
+    await App.api(`/wheel/paper/${encodeURIComponent(id)}/close`, { method: 'POST', body: { exit_mark: mark } });
+    App.flash('Paper position closed', 'info');
+    App.loadWheelAdvisor();
+  } catch (e) { App.flash(e.message, 'error'); }
+};
+
+App.renderWheelPaperBook = function() {
+  const el = document.getElementById('wheelPaperBook');
+  const sumEl = document.getElementById('wheelPaperSummary');
+  if (!el) return;
+  const positions = App.state.wheelPaper || [];
+  if (!positions.length) {
+    el.innerHTML = '<div class="empty-state">No paper positions yet — click "Paper" on a candidate</div>';
+    if (sumEl) sumEl.textContent = '';
+    return;
+  }
+  // Split by status.
+  const open = positions.filter(p => p.status === 'open');
+  const closed = positions.filter(p => p.status !== 'open');
+  // Aggregate stats.
+  const unrealized = open.reduce((s, p) => s + (p.unrealized_pnl || 0), 0);
+  const realized = closed.reduce((s, p) => s + (p.realized_pnl || 0), 0);
+  const wins = closed.filter(p => (p.realized_pnl || 0) > 0).length;
+  const winRate = closed.length ? Math.round((wins / closed.length) * 100) : null;
+  // Accuracy by verdict — did TAKE win, did SKIP have avoided losses, etc.
+  const byVerdict = { take: {n:0, w:0, pnl:0}, wait: {n:0, w:0, pnl:0}, skip: {n:0, w:0, pnl:0} };
+  for (const p of closed) {
+    const v = p.entry_verdict || '';
+    if (!byVerdict[v]) continue;
+    byVerdict[v].n += 1;
+    byVerdict[v].pnl += p.realized_pnl || 0;
+    if ((p.realized_pnl || 0) > 0) byVerdict[v].w += 1;
+  }
+  if (sumEl) {
+    sumEl.innerHTML = `
+      <span style="color:${unrealized >= 0 ? 'var(--green)' : 'var(--red)'}">unrealized ${unrealized >= 0 ? '+' : ''}$${unrealized.toFixed(2)}</span>
+      &nbsp;·&nbsp;
+      <span style="color:${realized >= 0 ? 'var(--green)' : 'var(--red)'}">realized ${realized >= 0 ? '+' : ''}$${realized.toFixed(2)}</span>
+      ${winRate !== null ? `&nbsp;·&nbsp;<span>${wins}/${closed.length} wins (${winRate}%)</span>` : ''}`;
+  }
+
+  const renderRow = (p, isOpen) => {
+    const sideLabel = p.option_type === 'P' ? 'PUT' : 'CALL';
+    const pnl = isOpen ? p.unrealized_pnl : p.realized_pnl;
+    const pnlColor = (pnl || 0) >= 0 ? 'var(--green)' : 'var(--red)';
+    const age = App.formatQuoteAge(p.last_mark_at);
+    const ageTag = age ? `<span class="wheel-age ${age.cls}">${age.label}</span>` : '';
+    const verdictTag = p.entry_verdict
+      ? `<span class="wheel-verdict ${p.entry_verdict}" title="Advisor verdict at entry">${p.entry_verdict.toUpperCase()}</span>`
+      : '';
+    const closeBtn = isOpen
+      ? `<button class="btn btn-sm" onclick="App.closePaperPosition('${esc(p.id)}', ${p.current_mark || 0})">Close</button>`
+      : '';
+    const entryTime = p.entry_time ? new Date(p.entry_time).toLocaleDateString() : '';
+    const closedTime = p.closed_at ? new Date(p.closed_at).toLocaleDateString() : '';
+    return `
+      <div class="wheel-paper-row ${isOpen ? 'open' : 'closed'}">
+        ${verdictTag}
+        <span class="wheel-paper-symbol">${esc(p.symbol)}</span>
+        <span class="wheel-paper-leg">${sideLabel} $${fmt(p.strike)} ${esc(p.expiration)}</span>
+        <span class="wheel-paper-contracts">${p.contracts}x</span>
+        <span class="wheel-paper-entry">entry $${fmt(p.entry_premium)}</span>
+        <span class="wheel-paper-mark">mark $${fmt(p.current_mark)}</span>
+        <span class="wheel-paper-pnl" style="color:${pnlColor}">${(pnl || 0) >= 0 ? '+' : ''}$${(pnl || 0).toFixed(2)}</span>
+        ${ageTag}
+        <span class="wheel-paper-dates">${isOpen ? `opened ${entryTime}` : `closed ${closedTime}`}</span>
+        ${closeBtn}
+      </div>`;
+  };
+
+  const openBlock = open.length
+    ? `<div class="wheel-paper-section"><h4>Open · ${open.length}</h4>${open.map(p => renderRow(p, true)).join('')}</div>`
+    : '';
+  const closedBlock = closed.length
+    ? `<div class="wheel-paper-section"><h4>Closed · ${closed.length}</h4>${closed.map(p => renderRow(p, false)).join('')}</div>`
+    : '';
+  // Verdict accuracy strip — only meaningful once there are closed positions.
+  let accuracy = '';
+  if (closed.length) {
+    accuracy = `<div class="wheel-paper-accuracy">`
+      + Object.entries(byVerdict).filter(([_, v]) => v.n > 0).map(([k, v]) => {
+          const pct = v.n ? Math.round((v.w / v.n) * 100) : 0;
+          const pnlColor = v.pnl >= 0 ? 'var(--green)' : 'var(--red)';
+          return `<span class="wheel-verdict ${k}">${k.toUpperCase()}</span> <span>${v.w}/${v.n} (${pct}%)</span> <span style="color:${pnlColor}">${v.pnl >= 0 ? '+' : ''}$${v.pnl.toFixed(2)}</span>`;
+        }).join(' &nbsp;·&nbsp; ')
+      + `</div>`;
+  }
+  el.innerHTML = accuracy + openBlock + closedBlock;
 };
 
 App.addWheelWatchlistEntry = function() {

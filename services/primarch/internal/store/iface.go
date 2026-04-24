@@ -169,4 +169,11 @@ type DataStore interface {
 	GetWheelRecommendation(id string) (*domain.WheelRecommendation, error)
 	UpdateWheelRecommendationStatus(id, status string) error
 	ExpireOldWheelRecommendations(olderThan time.Time) (int, error)
+
+	// Paper trading — simulated wheel positions opened from recs.
+	InsertWheelPaperPosition(p *domain.WheelPaperPosition) error
+	ListWheelPaperPositions(status string) []domain.WheelPaperPosition
+	UpdateWheelPaperMark(id string, mark float64, at time.Time) error
+	CloseWheelPaperPosition(id string, exitMark float64, note string) error
+	ExpireWheelPaperPositions(today time.Time) (int, error)
 }

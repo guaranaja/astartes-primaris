@@ -865,6 +865,7 @@ func ToRecommendations(runID string, cands []Candidate) []domain.WheelRecommenda
 			Vetoes:             c.Vetoes,
 			VerdictReasons:     c.VerdictReasons,
 			QuoteAsOf:          c.QuoteAsOf,
+			OptionSymbol:       c.OptionSymbol,
 			Status:             domain.WheelRecFresh,
 			CreatedAt:          now,
 		})

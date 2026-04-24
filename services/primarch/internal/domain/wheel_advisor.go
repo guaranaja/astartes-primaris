@@ -96,6 +96,7 @@ type WheelRecommendation struct {
 	Volume            int     `json:"volume,omitempty"`
 	Executable        bool    `json:"executable"`                    // all hard gates pass
 	ExistingPositionID string `json:"existing_position_id,omitempty"` // for close/roll recs
+	OptionSymbol      string  `json:"option_symbol,omitempty"`        // tastytrade formatted — lets paper-take open without re-resolving
 
 	// Pre-trade decision — populated by the advisor. Verdict is one of
 	// take/wait/skip (see WheelVerdict* constants). Vetoes are deterministic
@@ -115,4 +116,44 @@ type WheelRecommendation struct {
 	CreatedAt        time.Time  `json:"created_at"`
 	TakenAt          *time.Time `json:"taken_at,omitempty"`
 	DismissedAt      *time.Time `json:"dismissed_at,omitempty"`
+}
+
+// Paper trading — a simulated take on a wheel candidate. Captures the
+// entry conditions, tracks the option mark on each scan, and realizes P&L
+// when closed or expired. Lets the user sanity-check the advisor's
+// verdicts without committing real capital.
+const (
+	WheelPaperStatusOpen    = "open"
+	WheelPaperStatusClosed  = "closed"
+	WheelPaperStatusExpired = "expired"
+)
+
+// WheelPaperPosition is a simulated wheel leg. Short option convention —
+// entry_premium is the credit received per contract, current_mark is the
+// cost to buy back, so unrealized P&L per contract =
+// (entry_premium - current_mark) * 100 * contracts.
+type WheelPaperPosition struct {
+	ID             string     `json:"id"`
+	SourceRecID    string     `json:"source_rec_id,omitempty"` // wheel_recommendations.id this was opened from
+	Action         string     `json:"action"`                   // csp_open | cc_open
+	Symbol         string     `json:"symbol"`
+	OptionType     string     `json:"option_type"` // P | C
+	OptionSymbol   string     `json:"option_symbol,omitempty"` // tastytrade formatted
+	Strike         float64    `json:"strike"`
+	Expiration     string     `json:"expiration"` // YYYY-MM-DD
+	Contracts      int        `json:"contracts"`
+	EntryPremium   float64    `json:"entry_premium"` // mid at open
+	EntryTime      time.Time  `json:"entry_time"`
+	CurrentMark    float64    `json:"current_mark"`
+	LastMarkAt     time.Time  `json:"last_mark_at,omitempty"`
+	RealizedPnL    float64    `json:"realized_pnl,omitempty"`   // filled on close/expire
+	UnrealizedPnL  float64    `json:"unrealized_pnl,omitempty"` // computed on read
+	Status         string     `json:"status"`                   // open | closed | expired
+	Notes          string     `json:"notes,omitempty"`
+	CreatedAt      time.Time  `json:"created_at"`
+	ClosedAt       *time.Time `json:"closed_at,omitempty"`
+
+	// Verdict carried over from the source recommendation so we can tally
+	// take/wait/skip accuracy without a second lookup.
+	EntryVerdict string `json:"entry_verdict,omitempty"`
 }

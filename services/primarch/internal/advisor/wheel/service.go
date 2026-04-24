@@ -242,9 +242,59 @@ func (s *Service) RunOnce(ctx context.Context) {
 		s.logger.Info("wheel scan complete", "run", runID, "candidates", len(recs))
 	}
 
+	// Refresh marks on open paper positions + expire any whose date has passed.
+	// Piggybacks on the scan's tastytrade auth / quote fetch budget.
+	s.refreshPaperMarks(scanCtx)
+
 	// Sync tastytrade balance to Firefly as a "Tastytrade Brokerage" virtual
 	// asset account — keeps Firefly as the ledger of record for net worth.
 	s.syncBalanceToFirefly(scanCtx)
+}
+
+// refreshPaperMarks fetches fresh marks for every open paper position and
+// updates the store. Also expires anything past its expiration date so the
+// P&L realizes automatically without user interaction. Best-effort: one quote
+// failure doesn't bounce the whole loop.
+func (s *Service) refreshPaperMarks(ctx context.Context) {
+	// Expire first so we don't fetch quotes for already-expired legs.
+	if n, err := s.store.ExpireWheelPaperPositions(time.Now()); err == nil && n > 0 {
+		s.logger.Info("paper positions expired", "count", n)
+	}
+	open := s.store.ListWheelPaperPositions(domain.WheelPaperStatusOpen)
+	if len(open) == 0 {
+		return
+	}
+	// Collect tastytrade option symbols; skip any position that doesn't have
+	// one (shouldn't happen with rec-sourced positions but guard anyway).
+	var syms []string
+	symToID := map[string][]string{}
+	for _, p := range open {
+		if p.OptionSymbol == "" {
+			continue
+		}
+		syms = append(syms, p.OptionSymbol)
+		symToID[p.OptionSymbol] = append(symToID[p.OptionSymbol], p.ID)
+	}
+	if len(syms) == 0 {
+		return
+	}
+	quotes, err := s.tasty.GetMarketData(ctx, nil, syms)
+	if err != nil {
+		s.logger.Warn("paper mark refresh: market-data failed", "error", err)
+		return
+	}
+	now := time.Now()
+	for _, q := range quotes {
+		mid := (q.Bid + q.Ask) / 2
+		if mid <= 0 {
+			continue
+		}
+		for _, id := range symToID[q.Symbol] {
+			if err := s.store.UpdateWheelPaperMark(id, mid, now); err != nil {
+				s.logger.Warn("paper mark update failed", "id", id, "error", err)
+			}
+		}
+	}
 }
 
 // reviewWithClaude sends un-vetoed candidates to Claude for a structured
