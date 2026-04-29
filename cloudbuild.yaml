@@ -188,8 +188,10 @@ steps:
       - --allow-unauthenticated
       - --set-env-vars=^~^ENVIRONMENT=${_ENVIRONMENT}~ADMIN_EMAILS=dave@janzend.com~LIBRARIUM_HOST=10.79.0.3~LIBRARIUM_DB=librarium~LIBRARIUM_USER=librarium~REGISTRY_GCS_BUCKET=astartes-primaris-registry-bundles~DISCORD_CHANNEL_MARKETPLACE=1491106548175343667~DISCORD_CHANNEL_MARKETPLACE_ALERTS=1491106675527123195
       - --set-secrets=REGISTRY_MASTER_TOKEN=registry-master-token:latest,DISCORD_BOT_TOKEN=discord-bot-token:latest,PNL_REPORT_HMAC_SECRET=pnl-hmac-secret:latest,LIBRARIUM_PASSWORD=librarium-db-password-${_ENVIRONMENT}:latest,GOOGLE_CLIENT_ID=google-client-id:latest
-      - --vpc-connector=astartes-vpc-${_ENVIRONMENT}
+      - --network=default
+      - --subnet=default
       - --vpc-egress=private-ranges-only
+      - --clear-vpc-connector
       - --quiet
     waitFor: [push-registry]
 
